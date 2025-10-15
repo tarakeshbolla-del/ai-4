@@ -1,0 +1,5 @@
+{
+  "name": "PredictiveOps",
+  "description": "A Problem Management and Service Improvement Platform that functions as an intelligent front-end to an organization's existing ticketing system. It aims to deflect ticket creation through AI-powered solutions and provide predictive analytics for proactive problem management.",
+  "requestFramePermissions": []
+}
