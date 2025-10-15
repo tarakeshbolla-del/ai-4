@@ -1,3 +1,4 @@
+
 import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint } from '../types';
 import { TICKET_CATEGORIES, TICKET_PRIORITIES } from '../constants';
 import { getAiSuggestion } from '../services/geminiService';
@@ -15,6 +16,54 @@ const mockSimilarTickets: SimilarTicket[] = [
     { ticket_no: 'T003', problem_description: 'I am unable to access the sales dashboard, it says "access denied".', solution_text: 'Access to the sales dashboard requires approval from your manager. Please submit an access request ticket.', similarity_score: 0.85, category: 'Software' },
 ];
 
+// This represents the knowledge base after the model has been "trained"
+const trainedKnowledgeBase: SimilarTicket[] = [
+    // Account Management
+    { ticket_no: 'KB001', problem_description: 'User forgot their password and is locked out of their account.', solution_text: 'Use the "Forgot Password" link on the login page. An email will be sent with reset instructions.', similarity_score: 0.9, category: 'Account Management' },
+    { ticket_no: 'KB002', problem_description: 'Two-factor authentication (2FA) code is not being received.', solution_text: 'Check your spam folder. If not there, try restarting your phone. If it persists, ask IT to re-sync your 2FA token.', similarity_score: 0.9, category: 'Account Management' },
+    { ticket_no: 'KB003', problem_description: 'Account is locked after too many failed login attempts.', solution_text: 'The account will automatically unlock after 30 minutes. Alternatively, you can reset your password to unlock it immediately.', similarity_score: 0.9, category: 'Account Management' },
+
+    // Software
+    { ticket_no: 'KB004', problem_description: 'Error message "MSVCP140.dll was not found" when starting Adobe Photoshop.', solution_text: 'This error indicates a missing Microsoft Visual C++ Redistributable. Please download and install it from the Microsoft website.', similarity_score: 0.9, category: 'Software' },
+    { ticket_no: 'KB005', problem_description: 'Microsoft Excel is running very slow and freezes frequently.', solution_text: 'Disable unnecessary add-ins via File > Options > Add-ins. Also, check for large pivot tables or conditional formatting rules that may be slowing it down.', similarity_score: 0.9, category: 'Software' },
+    { ticket_no: 'KB006', problem_description: 'Cannot access shared folder, permission denied error.', solution_text: 'This requires access rights. Please create a new ticket requesting access to the specific shared folder, including approval from your manager.', similarity_score: 0.9, category: 'Software' },
+    { ticket_no: 'KB007', problem_description: 'Salesforce is not loading, stuck on the login screen.', solution_text: 'Clear your browser cache and cookies. Try an incognito window. If the issue remains, check the Salesforce status page for outages.', similarity_score: 0.9, category: 'Software' },
+
+    // Hardware
+    { ticket_no: 'KB008', problem_description: 'My laptop battery is draining very quickly.', solution_text: 'Check for power-hungry applications in Task Manager. Lower screen brightness and ensure the power plan is set to "Balanced" or "Power Saver".', similarity_score: 0.9, category: 'Hardware' },
+    { ticket_no: 'KB009', problem_description: 'External monitor is not detected by my laptop.', solution_text: 'Ensure the HDMI/DisplayPort cable is securely connected on both ends. Try updating your graphics drivers from the manufacturer\'s website.', similarity_score: 0.9, category: 'Hardware' },
+    { ticket_no: 'KB010', problem_description: 'The printer is offline and I cannot print.', solution_text: 'Check if the printer is powered on and connected to the network. Restart the printer. If it is a network printer, ensure you are on the correct Wi-Fi or VPN.', similarity_score: 0.9, category: 'Hardware' },
+
+    // Network
+    { ticket_no: 'KB011', problem_description: 'The office Wi-Fi connection is very slow and unstable.', solution_text: 'Try moving closer to a wireless access point. Disconnect and reconnect to the network. If possible, use a wired Ethernet connection for better stability.', similarity_score: 0.9, category: 'Network' },
+    { ticket_no: 'KB012', problem_description: 'VPN client fails to connect with a "certificate validation failure" error.', solution_text: 'This usually means the VPN client certificate has expired. Please run the "Update VPN Certificate" utility from the software center.', similarity_score: 0.9, category: 'Network' },
+    { ticket_no: 'KB013', problem_description: 'Cannot access internal websites, getting a DNS error.', solution_text: 'Disconnect from the VPN and reconnect to refresh your network settings. If that fails, try flushing your DNS cache by opening Command Prompt and running `ipconfig /flushdns`.', similarity_score: 0.9, category: 'Network' },
+    
+    // Database
+    { ticket_no: 'KB014', problem_description: 'Getting a "connection timeout" error when trying to connect to the SQL database.', solution_text: 'Verify the database server name and port are correct. Check if there is a firewall blocking the connection. Ensure you are on the company VPN if accessing remotely.', similarity_score: 0.9, category: 'Database' },
+    { ticket_no: 'KB015', problem_description: 'My SQL query is running extremely slow.', solution_text: 'Analyze the query execution plan to identify bottlenecks. Ensure tables are properly indexed, especially on columns used in WHERE clauses and JOINs.', similarity_score: 0.9, category: 'Database' },
+];
+
+let isModelTrained = false;
+
+// Common words to ignore for better search accuracy
+const STOP_WORDS = new Set([
+  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'aren\'t', 'as', 'at',
+  'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by', 'can\'t', 'cannot', 'could',
+  'couldn\'t', 'did', 'didn\'t', 'do', 'does', 'doesn\'t', 'doing', 'don\'t', 'down', 'during', 'each', 'few', 'for',
+  'from', 'further', 'had', 'hadn\'t', 'has', 'hasn\'t', 'have', 'haven\'t', 'having', 'he', 'he\'d', 'he\'ll', 'he\'s',
+  'her', 'here', 'here\'s', 'hers', 'herself', 'him', 'himself', 'his', 'how', 'how\'s', 'i', 'i\'d', 'i\'ll', 'i\'m',
+  'i\'ve', 'if', 'in', 'into', 'is', 'isn\'t', 'it', 'it\'s', 'its', 'itself', 'let\'s', 'me', 'more', 'most', 'mustn\'t',
+  'my', 'myself', 'no', 'nor', 'not', 'of', 'off', 'on', 'once', 'only', 'or', 'other', 'ought', 'our', 'ours',
+  'ourselves', 'out', 'over', 'own', 'same', 'shan\'t', 'she', 'she\'d', 'she\'ll', 'she\'s', 'should', 'shouldn\'t',
+  'so', 'some', 'such', 'than', 'that', 'that\'s', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there',
+  'there\'s', 'these', 'they', 'they\'d', 'they\'ll', 'they\'re', 'they\'ve', 'this', 'those', 'through', 'to', 'too',
+  'under', 'until', 'up', 'very', 'was', 'wasn\'t', 'we', 'we\'d', 'we\'ll', 'we\'re', 'we\'ve', 'were', 'weren\'t',
+  'what', 'what\'s', 'when', 'when\'s', 'where', 'where\'s', 'which', 'while', 'who', 'who\'s', 'whom', 'why', 'why\'s',
+  'with', 'won\'t', 'would', 'wouldn\'t', 'you', 'you\'d', 'you\'ll', 'you\'re', 'you\'ve', 'your', 'yours', 'yourself',
+  'yourselves', 'is', 'my', 'issue', 'problem', 'error', 'not', 'working', 'cannot', 'unable', 'to', 'access', 'the'
+]);
+
 // Helper to convert File to base64
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -25,23 +74,63 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-// Helper function to filter tickets based on a query string
+// Helper function to find similar tickets with a more accurate scoring model
 const filterSimilarTickets = (query: string): SimilarTicket[] => {
-    const queryWords = query
+    const dataSource = isModelTrained ? trainedKnowledgeBase : mockSimilarTickets;
+    console.log(`[API] Searching for similar tickets. Model trained: ${isModelTrained}. Datasource size: ${dataSource.length}`);
+    
+    const queryTokens = query
         .toLowerCase()
+        .replace(/[^\w\s]/g, '') // remove punctuation
         .split(/\s+/)
-        .filter(word => word.length > 3);
+        .filter(word => word.length > 2 && !STOP_WORDS.has(word));
 
-    if (queryWords.length === 0) {
+    if (queryTokens.length === 0) {
         return [];
     }
+    
+    const scoredTickets = dataSource.map(ticket => {
+        const ticketText = ` ${ticket.problem_description.toLowerCase().replace(/[^\w\s]/g, '')} `;
+        let score = 0;
 
-    const filtered = mockSimilarTickets.filter(ticket => {
-        const ticketText = ticket.problem_description.toLowerCase();
-        return queryWords.some(word => ticketText.includes(word));
+        // 1. Keyword matching score
+        queryTokens.forEach(token => {
+            const regex = new RegExp(`\\s${token}\\s`, 'g'); // match whole word
+            const matches = ticketText.match(regex);
+            if (matches) {
+                score += matches.length * 15; // Higher score for multiple whole-word occurrences
+            } else if (ticketText.includes(token)) {
+                 score += 5; // Lower score for partial match
+            }
+        });
+        
+        // 2. Phrase matching score (bigrams)
+        for (let i = 0; i < queryTokens.length - 1; i++) {
+            const bigram = `${queryTokens[i]} ${queryTokens[i+1]}`;
+            if (ticketText.includes(bigram)) {
+                score += 30; // Significant bonus for matching a phrase
+            }
+        }
+
+        // 3. Category matching boost
+        const ticketCategory = ticket.category?.toLowerCase();
+        if (ticketCategory && queryTokens.some(token => ticketCategory.includes(token))) {
+            score += 40; // High score for matching a keyword in category
+        }
+        
+        // 4. Exact match boost on category from query
+        const queryCategoryMatch = TICKET_CATEGORIES.find(cat => query.toLowerCase().includes(cat.toLowerCase()));
+        if(queryCategoryMatch && ticket.category?.toLowerCase() === queryCategoryMatch.toLowerCase()){
+            score += 50; // Very high score for explicit category match
+        }
+
+
+        return { ...ticket, similarity_score: score };
     });
 
-    return filtered;
+    return scoredTickets
+        .filter(ticket => ticket.similarity_score > 10) // Increase threshold to reduce noise
+        .sort((a, b) => b.similarity_score - a.similarity_score);
 };
 
 
@@ -184,6 +273,8 @@ export const initiateTraining = (): Promise<{ status: 'ok' }> => {
     currentTrainingStatus = 'in_progress';
     setTimeout(() => {
         currentTrainingStatus = 'completed';
+        isModelTrained = true; // Set the flag here
+        console.log('[API] Model training complete. Knowledge base updated.');
     }, 20000); // 20 seconds to simulate training
     return new Promise(resolve => setTimeout(() => resolve({ status: 'ok' }), 200));
 }
