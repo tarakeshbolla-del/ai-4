@@ -1,12 +1,11 @@
-
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SubmissionForm from './SubmissionForm';
 import AnalysisResult from './AnalysisResult';
 import LoadingSpinner from '../common/LoadingSpinner';
 import Header from '../common/Header';
 import { analyzeIssue, submitFeedback } from '../../services/api';
-import type { AnalysisResultData } from '../../types';
+import type { AnalysisResultData, SimilarTicket } from '../../types';
 
 type ViewState = 'form' | 'loading' | 'result' | 'confirmation';
 
@@ -15,6 +14,13 @@ const UserView: React.FC = () => {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResultData | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const navigate = useNavigate();
+
+  // State for the submission form is lifted up to preserve it
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [priority, setPriority] = useState('');
+  const [screenshot, setScreenshot] = useState<File | null>(null);
+
 
   const handleAnalyze = useCallback(async (formData: FormData) => {
     setViewState('loading');
@@ -37,23 +43,34 @@ const UserView: React.FC = () => {
     setFeedbackMessage(message);
     setViewState('confirmation');
   }, []);
+  
+  const handleSimilarIssueClick = useCallback((issue: SimilarTicket) => {
+    const result: AnalysisResultData = {
+        predictedModule: issue.category || 'Unknown',
+        predictedPriority: 'N/A',
+        similarIssues: [issue],
+        aiSuggestion: `Based on your selection, we found a direct match in our knowledge base. Please review the solution from ticket **${issue.ticket_no}**.`,
+        fromSimilarIssue: true,
+    };
+    setAnalysisResult(result);
+    setViewState('result');
+  }, []);
 
   const resetView = useCallback(() => {
     setViewState('form');
     setAnalysisResult(null);
     setFeedbackMessage('');
+    // Clear form state for a fresh start
+    setDescription('');
+    setCategory('');
+    setPriority('');
+    setScreenshot(null);
+  }, []);
+
+  const handleBackToForm = useCallback(() => {
+    setViewState('form');
   }, []);
   
-  useEffect(() => {
-    let timer: number;
-    if (viewState === 'confirmation') {
-      timer = window.setTimeout(() => {
-        resetView();
-      }, 4000);
-    }
-    return () => clearTimeout(timer);
-  }, [viewState, resetView]);
-
   const renderContent = () => {
     switch (viewState) {
       case 'loading':
@@ -67,7 +84,7 @@ const UserView: React.FC = () => {
         );
       case 'result':
         return analysisResult && (
-          <AnalysisResult result={analysisResult} onFeedback={handleFeedback} />
+          <AnalysisResult result={analysisResult} onFeedback={handleFeedback} onBack={handleBackToForm} />
         );
       case 'confirmation':
         return (
@@ -76,13 +93,32 @@ const UserView: React.FC = () => {
                   {feedbackMessage}
                 </p>
                 <p className="mt-2 text-gray-600 dark:text-gray-400">
-                  You will be redirected shortly.
+                  {feedbackMessage.includes('created')
+                    ? 'Our team will get back to you soon.'
+                    : 'We\'re glad we could resolve your issue. Feel free to submit another ticket if you need more help.'}
                 </p>
+                <button
+                  onClick={resetView}
+                  className="mt-6 px-6 py-2 bg-light-accent text-white font-bold rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  Create a New Ticket
+                </button>
             </div>
         );
       case 'form':
       default:
-        return <SubmissionForm onAnalyze={handleAnalyze} />;
+        return <SubmissionForm 
+            onAnalyze={handleAnalyze} 
+            onSimilarIssueClick={handleSimilarIssueClick} 
+            description={description}
+            onDescriptionChange={setDescription}
+            category={category}
+            onCategoryChange={setCategory}
+            priority={priority}
+            onPriorityChange={setPriority}
+            screenshot={screenshot}
+            onScreenshotChange={setScreenshot}
+        />;
     }
   };
 

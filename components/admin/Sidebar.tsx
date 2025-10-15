@@ -1,9 +1,15 @@
 
 import React from 'react';
-import { NavLink } from 'react-router-dom';
-import { ADMIN_NAV_LINKS } from '../../constants';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { ADMIN_NAV_LINKS, LogoutIcon } from '../../constants';
 
 const Sidebar: React.FC = () => {
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    navigate('/');
+  };
+
   return (
     <aside className="w-64 bg-white dark:bg-gray-800/50 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 p-4 flex flex-col">
       <div className="text-2xl font-bold text-light-accent dark:text-dark-accent mb-8">
@@ -30,8 +36,17 @@ const Sidebar: React.FC = () => {
           ))}
         </ul>
       </nav>
-      <div className="mt-auto text-center text-xs text-gray-400">
-        &copy; 2024 PredictiveOps
+      <div className="mt-auto">
+        <button
+          onClick={handleLogout}
+          className="flex items-center w-full p-3 my-2 rounded-lg transition-colors text-gray-600 dark:text-gray-300 hover:bg-red-100 dark:hover:bg-red-900/40 hover:text-red-600 dark:hover:text-red-400"
+        >
+          <LogoutIcon className="w-6 h-6 mr-3" />
+          <span className="font-medium">Logout</span>
+        </button>
+        <div className="mt-2 text-center text-xs text-gray-400">
+          &copy; 2025 PredictiveOps
+        </div>
       </div>
     </aside>
   );

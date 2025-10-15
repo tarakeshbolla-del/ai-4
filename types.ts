@@ -1,9 +1,9 @@
-
 export interface SimilarTicket {
   ticket_no: string;
   problem_description: string;
   solution_text: string;
   similarity_score: number;
+  category?: string;
 }
 
 export interface AnalysisResultData {
@@ -11,6 +11,7 @@ export interface AnalysisResultData {
   predictedPriority: string;
   similarIssues: SimilarTicket[];
   aiSuggestion: string;
+  fromSimilarIssue?: boolean;
 }
 
 export interface Kpis {
@@ -49,4 +50,22 @@ export interface SunburstNode {
 export interface SentimentData {
     labels: string[];
     data: (number | null)[];
+}
+
+export interface PredictiveHotspot {
+  name: string;
+  riskScore: number; // 0 to 1
+  trending: 'up' | 'down' | 'stable';
+}
+
+export interface SlaBreachTicket {
+    ticket_no: string;
+    priority: 'High' | 'Critical';
+    timeToBreach: string; // e.g., "35m"
+}
+
+export interface TicketVolumeForecastDataPoint {
+  day: string;
+  actual?: number;
+  forecast?: number;
 }

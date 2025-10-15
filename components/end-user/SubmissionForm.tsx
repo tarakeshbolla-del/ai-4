@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { TICKET_CATEGORIES, TICKET_PRIORITIES } from '../../constants';
 import { getSimilarIssues } from '../../services/api';
@@ -6,13 +5,29 @@ import type { SimilarTicket } from '../../types';
 
 interface SubmissionFormProps {
   onAnalyze: (formData: FormData) => void;
+  onSimilarIssueClick: (issue: SimilarTicket) => void;
+  description: string;
+  onDescriptionChange: (value: string) => void;
+  category: string;
+  onCategoryChange: (value: string) => void;
+  priority: string;
+  onPriorityChange: (value: string) => void;
+  screenshot: File | null;
+  onScreenshotChange: (file: File | null) => void;
 }
 
-const SubmissionForm: React.FC<SubmissionFormProps> = ({ onAnalyze }) => {
-  const [description, setDescription] = useState('');
-  const [screenshot, setScreenshot] = useState<File | null>(null);
-  const [category, setCategory] = useState('');
-  const [priority, setPriority] = useState('');
+const SubmissionForm: React.FC<SubmissionFormProps> = ({ 
+    onAnalyze, 
+    onSimilarIssueClick,
+    description,
+    onDescriptionChange,
+    category,
+    onCategoryChange,
+    priority,
+    onPriorityChange,
+    screenshot,
+    onScreenshotChange
+}) => {
   const [isDragging, setIsDragging] = useState(false);
   const [similarIssues, setSimilarIssues] = useState<SimilarTicket[]>([]);
   const [isFetchingSimilar, setIsFetchingSimilar] = useState(false);
@@ -20,7 +35,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({ onAnalyze }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (description.split(' ').length < 10) {
+    if (description.trim().length < 15) {
       setSimilarIssues([]);
       return;
     }
@@ -57,7 +72,9 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({ onAnalyze }) => {
 
   const handleFileChange = (files: FileList | null) => {
     if (files && files.length > 0) {
-      setScreenshot(files[0]);
+      onScreenshotChange(files[0]);
+    } else {
+      onScreenshotChange(null);
     }
   };
   
@@ -81,6 +98,8 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({ onAnalyze }) => {
       setIsDragging(false);
       handleFileChange(e.dataTransfer.files);
   };
+
+  const searchTriggered = description.trim().length >= 15;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -117,19 +136,32 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({ onAnalyze }) => {
           rows={6}
           className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent focus:ring-2 focus:ring-light-accent dark:focus:ring-dark-accent focus:border-transparent"
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          onChange={(e) => onDescriptionChange(e.target.value)}
           placeholder="Please provide as much detail as possible..."
         />
       </div>
 
       {isFetchingSimilar && <p className="text-sm text-gray-500">Searching for similar issues...</p>}
+      
+      {!isFetchingSimilar && searchTriggered && similarIssues.length === 0 && (
+        <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+            <p className="text-sm text-center text-gray-500 dark:text-gray-400">No previous tickets are similar.</p>
+        </div>
+      )}
+
       {similarIssues.length > 0 && (
         <div className="space-y-2 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
             <h4 className="font-semibold text-sm">Similar Solved Issues:</h4>
-            <ul className="list-disc list-inside text-sm space-y-1">
+            <ul className="text-sm space-y-1">
                 {similarIssues.map(issue => (
                     <li key={issue.ticket_no}>
-                        <span className="font-medium">{issue.problem_description.substring(0, 80)}...</span>
+                        <button
+                          type="button"
+                          onClick={() => onSimilarIssueClick(issue)}
+                          className="w-full text-left p-2 rounded-md transition-colors text-light-text dark:text-dark-text hover:bg-light-accent/10 dark:hover:bg-dark-accent/20"
+                        >
+                          <span className="font-medium hover:underline">{issue.problem_description.substring(0, 80)}...</span>
+                        </button>
                     </li>
                 ))}
             </ul>
@@ -145,7 +177,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({ onAnalyze }) => {
             id="category"
             className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent"
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) => onCategoryChange(e.target.value)}
           >
             <option value="">AI will predict</option>
             {TICKET_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
@@ -159,7 +191,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({ onAnalyze }) => {
             id="priority"
             className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent"
             value={priority}
-            onChange={(e) => setPriority(e.target.value)}
+            onChange={(e) => onPriorityChange(e.target.value)}
           >
             <option value="">AI will predict</option>
             {TICKET_PRIORITIES.map(pri => <option key={pri} value={pri}>{pri}</option>)}

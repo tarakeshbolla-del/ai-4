@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export const SunIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -36,6 +35,13 @@ export const SettingsIcon: React.FC<{ className?: string }> = ({ className }) =>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-1.007 1.11-1.226.554-.22 1.198-.22 1.752 0 .548.219 1.02.684 1.11 1.226l.043.25a2.25 2.25 0 01-1.616 2.969.75.75 0 00-1.005 1.005 2.25 2.25 0 012.969 1.616l.25.043c.542.09 1.007.56 1.226 1.11.22.554.22 1.198 0 1.752-.219.548-.684 1.02-1.226 1.11l-.25.043a2.25 2.25 0 01-2.969-1.616.75.75 0 00-1.005-1.005 2.25 2.25 0 01-1.616-2.969l-.043-.25c-.09-.542-.56-1.007-1.11-1.226-.554-.22-1.198-.22-1.752 0-.548.219-1.02.684-1.11 1.226l-.043.25a2.25 2.25 0 01-2.969 1.616.75.75 0 00-1.005 1.005 2.25 2.25 0 01-1.616 2.969l-.25.043c-.542.09-1.007.56-1.226 1.11-.22.554-.22 1.198 0 1.752.219.548.684 1.02 1.226 1.11l.25.043a2.25 2.25 0 012.969-1.616.75.75 0 001.005-1.005 2.25 2.25 0 011.616-2.969l.043-.25zM12 15a3 3 0 100-6 3 3 0 000 6z" />
     </svg>
 );
+
+export const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3-3l3-3m0 0l-3-3m3 3H9" />
+    </svg>
+);
+
 
 export const ADMIN_NAV_LINKS = [
     { href: "/admin/dashboard", text: "Dashboard", icon: DashboardIcon },

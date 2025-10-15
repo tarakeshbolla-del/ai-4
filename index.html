@@ -20,6 +20,15 @@
               'dark-text': '#E2E8F0',
               'dark-accent': '#22D3EE',
             },
+            keyframes: {
+                ticker: {
+                    '0%': { transform: 'translateY(0)' },
+                    '100%': { transform: 'translateY(-50%)' },
+                }
+            },
+            animation: {
+                ticker: 'ticker 20s linear infinite',
+            }
           },
         },
       }

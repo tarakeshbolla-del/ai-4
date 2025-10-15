@@ -1,6 +1,6 @@
-
-import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData } from '../types';
+import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint } from '../types';
 import { TICKET_CATEGORIES, TICKET_PRIORITIES } from '../constants';
+import { getAiSuggestion } from '../services/geminiService';
 
 // --- MOCK DATABASE ---
 let kpis: Kpis = {
@@ -10,53 +10,85 @@ let kpis: Kpis = {
 };
 
 const mockSimilarTickets: SimilarTicket[] = [
-    { ticket_no: 'T001', problem_description: 'Cannot login to VPN, password reset link not working.', solution_text: 'The VPN uses a separate directory. Please reset your password at vpn.company.com/reset.', similarity_score: 0.95 },
-    { ticket_no: 'T002', problem_description: 'Login password for my computer is not being accepted after I changed it.', solution_text: 'Ensure you are connected to the office network or VPN for the new password to sync. If issue persists, contact IT.', similarity_score: 0.88 },
-    { ticket_no: 'T003', problem_description: 'I am unable to access the sales dashboard, it says "access denied".', solution_text: 'Access to the sales dashboard requires approval from your manager. Please submit an access request ticket.', similarity_score: 0.85 },
+    { ticket_no: 'T001', problem_description: 'Cannot login to VPN, password reset link not working.', solution_text: 'The VPN uses a separate directory. Please reset your password at vpn.company.com/reset.', similarity_score: 0.95, category: 'Network' },
+    { ticket_no: 'T002', problem_description: 'Login password for my computer is not being accepted after I changed it.', solution_text: 'Ensure you are connected to the office network or VPN for the new password to sync. If issue persists, contact IT.', similarity_score: 0.88, category: 'Account Management' },
+    { ticket_no: 'T003', problem_description: 'I am unable to access the sales dashboard, it says "access denied".', solution_text: 'Access to the sales dashboard requires approval from your manager. Please submit an access request ticket.', similarity_score: 0.85, category: 'Software' },
 ];
 
-const mockAiSuggestion = `
-### Step-by-Step Solution:
+// Helper to convert File to base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = error => reject(error);
+  });
+};
 
-It appears you are having trouble with your VPN password, which is different from your main company login. Here is a suggested course of action:
+// Helper function to filter tickets based on a query string
+const filterSimilarTickets = (query: string): SimilarTicket[] => {
+    const queryWords = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(word => word.length > 3);
 
-1.  **Navigate to the Correct Portal**: Open your web browser and go to \`vpn.company.com/reset\`.
-2.  **Enter Your Username**: Use your standard company email address as the username.
-3.  **Follow Password Reset Prompts**: The system will send a password reset link to your email. Follow the instructions in the email to set a new password.
-4.  **Reconnect to VPN**: Use your new password to connect to the VPN client.
+    if (queryWords.length === 0) {
+        return [];
+    }
 
-If you still face issues, please confirm you are using the correct VPN client software as specified in the IT knowledge base.
-`;
+    const filtered = mockSimilarTickets.filter(ticket => {
+        const ticketText = ticket.problem_description.toLowerCase();
+        return queryWords.some(word => ticketText.includes(word));
+    });
+
+    return filtered;
+};
+
 
 // --- SIMULATED API FUNCTIONS ---
 
-export const analyzeIssue = (formData: FormData): Promise<AnalysisResultData> => {
+export const analyzeIssue = async (formData: FormData): Promise<AnalysisResultData> => {
   console.log('API: Analyzing issue...', {
     description: formData.get('description'),
     category: formData.get('category'),
     priority: formData.get('priority'),
     screenshot: formData.get('screenshot'),
   });
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve({
-        predictedModule: formData.get('category') as string || 'Network',
-        predictedPriority: formData.get('priority') as string || 'High',
-        similarIssues: mockSimilarTickets,
-        aiSuggestion: mockAiSuggestion,
-      });
-    }, 2500);
-  });
+
+  const description = formData.get('description') as string;
+  const category = formData.get('category') as string;
+  const priority = formData.get('priority') as string;
+  const screenshotFile = formData.get('screenshot') as File | null;
+
+  let screenshotBase64: string | undefined = undefined;
+  if (screenshotFile) {
+    try {
+      screenshotBase64 = await fileToBase64(screenshotFile);
+    } catch (error) {
+      console.error("Failed to convert file to base64", error);
+    }
+  }
+
+  // Get the AI suggestion, which will now use the screenshot if provided.
+  const aiSuggestion = await getAiSuggestion(description, category, priority, screenshotBase64);
+  
+  // Use the shared filtering logic to find relevant issues
+  const relevantSimilarIssues = filterSimilarTickets(description);
+
+  // Return a combined result with other mock data.
+  return {
+    predictedModule: category || 'Network',
+    predictedPriority: priority || 'High',
+    similarIssues: relevantSimilarIssues,
+    aiSuggestion: aiSuggestion,
+  };
 };
 
 export const getSimilarIssues = (query: string): Promise<SimilarTicket[]> => {
     return new Promise(resolve => {
         setTimeout(() => {
-            if (query.length < 10) {
-                resolve([]);
-                return;
-            }
-            const filtered = mockSimilarTickets.filter(t => t.problem_description.toLowerCase().includes(query.toLowerCase().slice(0, 15)));
+            // Use the shared filtering logic for the live search
+            const filtered = filterSimilarTickets(query);
             resolve(filtered.slice(0, 2));
         }, 500);
     });
@@ -202,5 +234,71 @@ export const getUserFrustrationData = (): Promise<SentimentData> => {
                 data: [0.3, 0.35, 0.32, 0.4, 0.45, 0.41, 0.5, 0.48],
             });
         }, 1200);
+    });
+};
+
+export const getPredictiveHotspots = (): Promise<PredictiveHotspot[]> => {
+    return new Promise(resolve => {
+        setTimeout(() => {
+            resolve([
+                { name: 'CRM System', riskScore: 0.85, trending: 'up' },
+                { name: 'VPN Service', riskScore: 0.65, trending: 'up' },
+                { name: 'Email Server', riskScore: 0.40, trending: 'stable' },
+            ]);
+        }, 800);
+    });
+};
+
+export const getSlaBreachTickets = (): Promise<SlaBreachTicket[]> => {
+    return new Promise(resolve => {
+        setTimeout(() => {
+            resolve([
+                { ticket_no: 'T-CRIT-001', priority: 'Critical', timeToBreach: '15m' },
+                { ticket_no: 'T-HIGH-045', priority: 'High', timeToBreach: '35m' },
+                { ticket_no: 'T-HIGH-048', priority: 'High', timeToBreach: '55m' },
+                { ticket_no: 'T-CRIT-002', priority: 'Critical', timeToBreach: '1h 10m' },
+            ]);
+        }, 950);
+    });
+};
+
+export const getTicketVolumeForecast = (): Promise<TicketVolumeForecastDataPoint[]> => {
+    return new Promise(resolve => {
+        setTimeout(() => {
+            const data: TicketVolumeForecastDataPoint[] = [];
+            const today = new Date();
+            
+            // Last 4 days (actual)
+            for (let i = 4; i > 0; i--) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i);
+                data.push({
+                    day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+                    actual: Math.floor(Math.random() * 50) + 180, // 180-230
+                });
+            }
+
+            // Today (actual) + start of forecast
+            const todayActual = Math.floor(Math.random() * 50) + 190;
+            data.push({
+                day: 'Today',
+                actual: todayActual,
+                forecast: todayActual, // Forecast starts from today's actual
+            });
+
+            // Next 6 days (forecast)
+            let lastForecast = todayActual;
+            for (let i = 1; i <= 6; i++) {
+                const date = new Date(today);
+                date.setDate(today.getDate() + i);
+                 lastForecast = lastForecast + (Math.random() * 20 - 10); // Fluctuate
+                data.push({
+                    day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+                    forecast: Math.max(150, Math.floor(lastForecast)), // ensure not negative
+                });
+            }
+            
+            resolve(data);
+        }, 800);
     });
 };
