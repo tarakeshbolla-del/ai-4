@@ -1,6 +1,4 @@
-
 import React from 'react';
-import { TICKET_CATEGORIES, TICKET_PRIORITIES } from '../../../constants';
 import type { HeatmapDataPoint } from '../../../types';
 
 interface ImpactHeatmapProps {
@@ -23,16 +21,34 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data }) => {
     return 'bg-cyan-600 dark:bg-cyan-400';
   };
 
+  // Dynamically get categories and priorities from the data
+  // Fix: Explicitly type 'categories' as a string array to fix TypeScript inference issue.
+  const categories: string[] = [...new Set(data.map(d => d.category))];
+  // Fix: Explicitly type 'priorities' as a string array to fix TypeScript inference issue.
+  const priorities: string[] = [...new Set(data.map(d => d.priority))];
+
+  // Ensure a consistent, logical order for priorities
+  const priorityOrder = ['Low', 'Medium', 'High', 'Critical'];
+  priorities.sort((a, b) => {
+    const indexA = priorityOrder.indexOf(a);
+    const indexB = priorityOrder.indexOf(b);
+    if (indexA !== -1 && indexB !== -1) return indexA - indexB; // Both are known
+    if (indexA !== -1) return -1; // a is known, b is not
+    if (indexB !== -1) return 1; // b is known, a is not
+    return a.localeCompare(b); // Both are unknown, sort alphabetically
+  });
+
+
   return (
     <div className="overflow-x-auto">
-        <div className="grid grid-cols-5 gap-1" style={{gridTemplateColumns: `1fr repeat(${TICKET_CATEGORIES.length}, 2fr)`}}>
+        <div className="grid gap-1" style={{gridTemplateColumns: `minmax(80px, 1fr) repeat(${categories.length}, minmax(100px, 2fr))`}}>
             <div />
-            {TICKET_CATEGORIES.map(cat => <div key={cat} className="font-bold text-center text-sm pb-2">{cat}</div>)}
+            {categories.map(cat => <div key={cat} className="font-bold text-center text-sm pb-2 truncate" title={cat}>{cat}</div>)}
             
-            {TICKET_PRIORITIES.slice().reverse().map(priority => (
+            {priorities.slice().reverse().map(priority => (
                 <React.Fragment key={priority}>
                     <div className="font-bold text-sm text-right pr-2 flex items-center justify-end">{priority}</div>
-                    {TICKET_CATEGORIES.map(category => {
+                    {categories.map(category => {
                         const value = findValue(category, priority);
                         return (
                              <div 

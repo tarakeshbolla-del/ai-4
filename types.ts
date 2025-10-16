@@ -4,6 +4,8 @@ export interface SimilarTicket {
   solution_text: string;
   similarity_score: number;
   category?: string;
+  // Fix: Add optional priority property to match data structure from CSV upload and prevent type error.
+  priority?: string;
 }
 
 export interface AnalysisResultData {
@@ -69,3 +71,5 @@ export interface TicketVolumeForecastDataPoint {
   actual?: number;
   forecast?: number;
 }
+
+export type CsvHeaderMapping = Record<string, string | null>;

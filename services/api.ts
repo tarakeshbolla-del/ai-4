@@ -1,50 +1,34 @@
+import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint, CsvHeaderMapping } from '../types';
+import { TICKET_CATEGORIES as PREDEFINED_CATEGORIES, TICKET_PRIORITIES as PREDEFINED_PRIORITIES } from '../constants';
+import { getAiSuggestion, getMappingSuggestion, getNormalizedMappings } from '../services/geminiService';
 
-import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint } from '../types';
-import { TICKET_CATEGORIES, TICKET_PRIORITIES } from '../constants';
-import { getAiSuggestion } from '../services/geminiService';
+// --- STATE MANAGEMENT ---
+let isModelTrained = false;
+let currentTrainingStatus: TrainingStatus = 'idle';
+let dynamicCategories = [...PREDEFINED_CATEGORIES];
+let dynamicPriorities = [...PREDEFINED_PRIORITIES];
 
-// --- MOCK DATABASE ---
-let kpis: Kpis = {
+
+// --- DATA STORES ---
+// Stores for pre-training (initial mock data)
+let initialKpis: Kpis = {
   deflectionRate: 78.5,
   avgTimeToResolution: 4.2,
   firstContactResolution: 92.1,
 };
-
 const mockSimilarTickets: SimilarTicket[] = [
     { ticket_no: 'T001', problem_description: 'Cannot login to VPN, password reset link not working.', solution_text: 'The VPN uses a separate directory. Please reset your password at vpn.company.com/reset.', similarity_score: 0.95, category: 'Network' },
     { ticket_no: 'T002', problem_description: 'Login password for my computer is not being accepted after I changed it.', solution_text: 'Ensure you are connected to the office network or VPN for the new password to sync. If issue persists, contact IT.', similarity_score: 0.88, category: 'Account Management' },
     { ticket_no: 'T003', problem_description: 'I am unable to access the sales dashboard, it says "access denied".', solution_text: 'Access to the sales dashboard requires approval from your manager. Please submit an access request ticket.', similarity_score: 0.85, category: 'Software' },
 ];
 
-// This represents the knowledge base after the model has been "trained"
-const trainedKnowledgeBase: SimilarTicket[] = [
-    // Account Management
-    { ticket_no: 'KB001', problem_description: 'User forgot their password and is locked out of their account.', solution_text: 'Use the "Forgot Password" link on the login page. An email will be sent with reset instructions.', similarity_score: 0.9, category: 'Account Management' },
-    { ticket_no: 'KB002', problem_description: 'Two-factor authentication (2FA) code is not being received.', solution_text: 'Check your spam folder. If not there, try restarting your phone. If it persists, ask IT to re-sync your 2FA token.', similarity_score: 0.9, category: 'Account Management' },
-    { ticket_no: 'KB003', problem_description: 'Account is locked after too many failed login attempts.', solution_text: 'The account will automatically unlock after 30 minutes. Alternatively, you can reset your password to unlock it immediately.', similarity_score: 0.9, category: 'Account Management' },
+// Stores for post-training data
+let uploadedTickets: SimilarTicket[] = [];
+let trainedKnowledgeBase: SimilarTicket[] = [];
+let trainedKpis: Kpis | null = null;
+let trainedRootCauses: RootCauseData[] = [];
+let trainedHeatmapData: HeatmapDataPoint[] = [];
 
-    // Software
-    { ticket_no: 'KB004', problem_description: 'Error message "MSVCP140.dll was not found" when starting Adobe Photoshop.', solution_text: 'This error indicates a missing Microsoft Visual C++ Redistributable. Please download and install it from the Microsoft website.', similarity_score: 0.9, category: 'Software' },
-    { ticket_no: 'KB005', problem_description: 'Microsoft Excel is running very slow and freezes frequently.', solution_text: 'Disable unnecessary add-ins via File > Options > Add-ins. Also, check for large pivot tables or conditional formatting rules that may be slowing it down.', similarity_score: 0.9, category: 'Software' },
-    { ticket_no: 'KB006', problem_description: 'Cannot access shared folder, permission denied error.', solution_text: 'This requires access rights. Please create a new ticket requesting access to the specific shared folder, including approval from your manager.', similarity_score: 0.9, category: 'Software' },
-    { ticket_no: 'KB007', problem_description: 'Salesforce is not loading, stuck on the login screen.', solution_text: 'Clear your browser cache and cookies. Try an incognito window. If the issue remains, check the Salesforce status page for outages.', similarity_score: 0.9, category: 'Software' },
-
-    // Hardware
-    { ticket_no: 'KB008', problem_description: 'My laptop battery is draining very quickly.', solution_text: 'Check for power-hungry applications in Task Manager. Lower screen brightness and ensure the power plan is set to "Balanced" or "Power Saver".', similarity_score: 0.9, category: 'Hardware' },
-    { ticket_no: 'KB009', problem_description: 'External monitor is not detected by my laptop.', solution_text: 'Ensure the HDMI/DisplayPort cable is securely connected on both ends. Try updating your graphics drivers from the manufacturer\'s website.', similarity_score: 0.9, category: 'Hardware' },
-    { ticket_no: 'KB010', problem_description: 'The printer is offline and I cannot print.', solution_text: 'Check if the printer is powered on and connected to the network. Restart the printer. If it is a network printer, ensure you are on the correct Wi-Fi or VPN.', similarity_score: 0.9, category: 'Hardware' },
-
-    // Network
-    { ticket_no: 'KB011', problem_description: 'The office Wi-Fi connection is very slow and unstable.', solution_text: 'Try moving closer to a wireless access point. Disconnect and reconnect to the network. If possible, use a wired Ethernet connection for better stability.', similarity_score: 0.9, category: 'Network' },
-    { ticket_no: 'KB012', problem_description: 'VPN client fails to connect with a "certificate validation failure" error.', solution_text: 'This usually means the VPN client certificate has expired. Please run the "Update VPN Certificate" utility from the software center.', similarity_score: 0.9, category: 'Network' },
-    { ticket_no: 'KB013', problem_description: 'Cannot access internal websites, getting a DNS error.', solution_text: 'Disconnect from the VPN and reconnect to refresh your network settings. If that fails, try flushing your DNS cache by opening Command Prompt and running `ipconfig /flushdns`.', similarity_score: 0.9, category: 'Network' },
-    
-    // Database
-    { ticket_no: 'KB014', problem_description: 'Getting a "connection timeout" error when trying to connect to the SQL database.', solution_text: 'Verify the database server name and port are correct. Check if there is a firewall blocking the connection. Ensure you are on the company VPN if accessing remotely.', similarity_score: 0.9, category: 'Database' },
-    { ticket_no: 'KB015', problem_description: 'My SQL query is running extremely slow.', solution_text: 'Analyze the query execution plan to identify bottlenecks. Ensure tables are properly indexed, especially on columns used in WHERE clauses and JOINs.', similarity_score: 0.9, category: 'Database' },
-];
-
-let isModelTrained = false;
 
 // Common words to ignore for better search accuracy
 const STOP_WORDS = new Set([
@@ -74,62 +58,38 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-// Helper function to find similar tickets with a more accurate scoring model
 const filterSimilarTickets = (query: string): SimilarTicket[] => {
     const dataSource = isModelTrained ? trainedKnowledgeBase : mockSimilarTickets;
-    console.log(`[API] Searching for similar tickets. Model trained: ${isModelTrained}. Datasource size: ${dataSource.length}`);
     
     const queryTokens = query
         .toLowerCase()
-        .replace(/[^\w\s]/g, '') // remove punctuation
+        .replace(/[^\w\s]/g, '')
         .split(/\s+/)
         .filter(word => word.length > 2 && !STOP_WORDS.has(word));
 
-    if (queryTokens.length === 0) {
-        return [];
-    }
+    if (queryTokens.length === 0) return [];
     
     const scoredTickets = dataSource.map(ticket => {
         const ticketText = ` ${ticket.problem_description.toLowerCase().replace(/[^\w\s]/g, '')} `;
         let score = 0;
-
-        // 1. Keyword matching score
         queryTokens.forEach(token => {
-            const regex = new RegExp(`\\s${token}\\s`, 'g'); // match whole word
+            const regex = new RegExp(`\\s${token}\\s`, 'g');
             const matches = ticketText.match(regex);
-            if (matches) {
-                score += matches.length * 15; // Higher score for multiple whole-word occurrences
-            } else if (ticketText.includes(token)) {
-                 score += 5; // Lower score for partial match
-            }
+            if (matches) score += matches.length * 15;
+            else if (ticketText.includes(token)) score += 5;
         });
-        
-        // 2. Phrase matching score (bigrams)
         for (let i = 0; i < queryTokens.length - 1; i++) {
-            const bigram = `${queryTokens[i]} ${queryTokens[i+1]}`;
-            if (ticketText.includes(bigram)) {
-                score += 30; // Significant bonus for matching a phrase
-            }
+            if (ticketText.includes(`${queryTokens[i]} ${queryTokens[i+1]}`)) score += 30;
         }
-
-        // 3. Category matching boost
         const ticketCategory = ticket.category?.toLowerCase();
-        if (ticketCategory && queryTokens.some(token => ticketCategory.includes(token))) {
-            score += 40; // High score for matching a keyword in category
-        }
-        
-        // 4. Exact match boost on category from query
-        const queryCategoryMatch = TICKET_CATEGORIES.find(cat => query.toLowerCase().includes(cat.toLowerCase()));
-        if(queryCategoryMatch && ticket.category?.toLowerCase() === queryCategoryMatch.toLowerCase()){
-            score += 50; // Very high score for explicit category match
-        }
-
-
+        if (ticketCategory && queryTokens.some(token => ticketCategory.includes(token))) score += 40;
+        const queryCategoryMatch = dynamicCategories.find(cat => query.toLowerCase().includes(cat.toLowerCase()));
+        if(queryCategoryMatch && ticket.category?.toLowerCase() === queryCategoryMatch.toLowerCase()) score += 50;
         return { ...ticket, similarity_score: score };
     });
 
     return scoredTickets
-        .filter(ticket => ticket.similarity_score > 10) // Increase threshold to reduce noise
+        .filter(ticket => ticket.similarity_score > 10)
         .sort((a, b) => b.similarity_score - a.similarity_score);
 };
 
@@ -137,13 +97,6 @@ const filterSimilarTickets = (query: string): SimilarTicket[] => {
 // --- SIMULATED API FUNCTIONS ---
 
 export const analyzeIssue = async (formData: FormData): Promise<AnalysisResultData> => {
-  console.log('API: Analyzing issue...', {
-    description: formData.get('description'),
-    category: formData.get('category'),
-    priority: formData.get('priority'),
-    screenshot: formData.get('screenshot'),
-  });
-
   const description = formData.get('description') as string;
   const category = formData.get('category') as string;
   const priority = formData.get('priority') as string;
@@ -153,18 +106,12 @@ export const analyzeIssue = async (formData: FormData): Promise<AnalysisResultDa
   if (screenshotFile) {
     try {
       screenshotBase64 = await fileToBase64(screenshotFile);
-    } catch (error) {
-      console.error("Failed to convert file to base64", error);
-    }
+    } catch (error) { console.error("Failed to convert file to base64", error); }
   }
 
-  // Get the AI suggestion, which will now use the screenshot if provided.
   const aiSuggestion = await getAiSuggestion(description, category, priority, screenshotBase64);
-  
-  // Use the shared filtering logic to find relevant issues
   const relevantSimilarIssues = filterSimilarTickets(description);
 
-  // Return a combined result with other mock data.
   return {
     predictedModule: category || 'Network',
     predictedPriority: priority || 'High',
@@ -176,105 +123,322 @@ export const analyzeIssue = async (formData: FormData): Promise<AnalysisResultDa
 export const getSimilarIssues = (query: string): Promise<SimilarTicket[]> => {
     return new Promise(resolve => {
         setTimeout(() => {
-            // Use the shared filtering logic for the live search
-            const filtered = filterSimilarTickets(query);
-            resolve(filtered.slice(0, 2));
+            resolve(filterSimilarTickets(query).slice(0, 2));
         }, 500);
     });
 };
 
 export const submitFeedback = (feedback: 'positive' | 'negative'): Promise<{ status: 'ok' }> => {
     console.log('API: Received feedback', feedback);
-    if (feedback === 'positive') {
+    const kpis = isModelTrained ? trainedKpis : initialKpis;
+    if (kpis && feedback === 'positive') {
         kpis.deflectionRate = Math.min(100, kpis.deflectionRate + 0.1);
     }
-    // Simulate other KPI changes
-    kpis.avgTimeToResolution = Math.max(1, kpis.avgTimeToResolution - 0.05);
-    kpis.firstContactResolution = Math.min(100, kpis.firstContactResolution + 0.02);
     return new Promise(resolve => setTimeout(() => resolve({ status: 'ok' }), 300));
 }
+
+// --- DATA PROCESSING LOGIC ---
+
+function processTrainedData() {
+    if (uploadedTickets.length === 0) return;
+
+    trainedKnowledgeBase = [...uploadedTickets];
+
+    // 1. Calculate KPIs (simulated logic)
+    trainedKpis = {
+        deflectionRate: 85.2,
+        avgTimeToResolution: 3.8,
+        firstContactResolution: 95.0,
+    };
+
+    // 2. Calculate Root Causes from descriptions
+    // Maps keywords to the main, standardized categories.
+    const rootCauseKeywords: { [key: string]: string[] } = {
+        'Software': ['error', 'crash', 'slow', 'freeze', 'bug', 'not responding', 'application', 'access', 'permission', 'denied', 'dashboard', 'feature', 'software'],
+        'Hardware': ['printer', 'monitor', 'keyboard', 'laptop', 'mouse', 'broken', 'offline', 'jammed', 'driver', 'hardware'],
+        'Network': ['vpn', 'wifi', 'network', 'connect', 'internet', 'disconnected', 'timeout', 'certificate', 'connectivity'],
+        'Account Management': ['password', 'login', 'locked', 'reset', 'account', 'credential', 'username', 'expired', 'access'],
+        'Database': ['database', 'sql', 'query', 'connection', 'record', 'data', 'table'],
+    };
+    
+    const causeCounts: { [key: string]: number } = {};
+    uploadedTickets.forEach(ticket => {
+        const description = ticket.problem_description.toLowerCase();
+        let found = false;
+        // Prioritize keyword matching first for a deeper analysis
+        for (const cause in rootCauseKeywords) {
+            if (rootCauseKeywords[cause].some(keyword => description.includes(keyword))) {
+                causeCounts[cause] = (causeCounts[cause] || 0) + 1;
+                found = true;
+                break;
+            }
+        }
+        // If no keyword matches, fall back to the ticket's assigned category
+        if (!found) {
+            const fallbackCategory = (ticket.category && ticket.category !== 'Uncategorized' && dynamicCategories.includes(ticket.category))
+                ? ticket.category
+                : 'Other';
+            causeCounts[fallbackCategory] = (causeCounts[fallbackCategory] || 0) + 1;
+        }
+    });
+
+    trainedRootCauses = Object.entries(causeCounts)
+        .map(([name, tickets]) => ({ name, tickets }))
+        .sort((a, b) => b.tickets - a.tickets)
+        .slice(0, 6);
+
+    // 3. Calculate Heatmap Data
+    const heatmapCounts: { [key: string]: number } = {};
+    uploadedTickets.forEach(ticket => {
+        const key = `${ticket.category}|${ticket.priority}`;
+        heatmapCounts[key] = (heatmapCounts[key] || 0) + 1;
+    });
+    
+    // Ensure all category/priority combos exist, even if with 0 value
+    trainedHeatmapData = dynamicCategories.flatMap(cat => 
+        dynamicPriorities.map(pri => {
+            const key = `${cat}|${pri}`;
+            return { category: cat, priority: pri, value: heatmapCounts[key] || 0 };
+        })
+    );
+
+    console.log('[API] Finished processing trained data. Dashboards will now use realistic data.');
+}
+
 
 // --- ADMIN API FUNCTIONS ---
 
 export const getInitialDashboardData = (): Promise<{ kpis: Kpis; rootCauses: RootCauseData[]; heatmap: HeatmapDataPoint[] }> => {
     return new Promise(resolve => {
         setTimeout(() => {
-            resolve({
-                kpis,
-                rootCauses: [
-                    { name: 'Password Resets', tickets: 450 },
-                    { name: 'VPN Connectivity', tickets: 320 },
-                    { name: 'Software Access', tickets: 210 },
-                    { name: 'Printer Issues', tickets: 150 },
-                    { name: 'Hardware Failure', tickets: 80 },
-                    { name: 'Other', tickets: 190 },
-                ],
-                heatmap: TICKET_CATEGORIES.flatMap(cat => 
-                    TICKET_PRIORITIES.map(pri => ({
-                        category: cat,
-                        priority: pri,
-                        value: Math.floor(Math.random() * 100)
-                    }))
-                ),
-            });
+            if (isModelTrained && trainedKpis) {
+                resolve({
+                    kpis: trainedKpis,
+                    rootCauses: trainedRootCauses,
+                    heatmap: trainedHeatmapData,
+                });
+            } else {
+                resolve({
+                    kpis: initialKpis,
+                    rootCauses: [
+                        { name: 'Password Resets', tickets: 450 },
+                        { name: 'VPN Connectivity', tickets: 320 },
+                        { name: 'Software Access', tickets: 210 },
+                        { name: 'Printer Issues', tickets: 150 },
+                        { name: 'Hardware Failure', tickets: 80 },
+                        { name: 'Other', tickets: 190 },
+                    ],
+                    heatmap: PREDEFINED_CATEGORIES.flatMap(cat => 
+                        PREDEFINED_PRIORITIES.map(pri => ({
+                            category: cat,
+                            priority: pri,
+                            value: Math.floor(Math.random() * 100)
+                        }))
+                    ),
+                });
+            }
         }, 1000);
     });
 };
 
 export const getWordCloudData = (category: string): Promise<{ word: string, value: number }[]> => {
-    console.log(`API: Fetching word cloud data for ${category}`);
-    const words: Record<string, string[]> = {
-        'Password Resets': ['login', 'password', 'reset', 'account', 'locked', 'expired', 'forgot'],
-        'VPN Connectivity': ['vpn', 'connect', 'disconnect', 'slow', 'error', 'timeout', 'certificate'],
-        'Software Access': ['access', 'denied', 'permission', 'request', 'salesforce', 'jira', 'dashboard'],
-        'Printer Issues': ['printer', 'offline', 'jammed', 'toner', 'driver', 'network', 'scan'],
-        'Hardware Failure': ['laptop', 'monitor', 'keyboard', 'mouse', 'broken', 'not working', 'blue screen'],
-        'Other': ['issue', 'problem', 'help', 'email', 'system', 'slow', 'error'],
-    };
     return new Promise(resolve => {
         setTimeout(() => {
-            resolve((words[category] || words['Other']).map(word => ({
-                word,
-                value: Math.floor(Math.random() * 50) + 10
-            })));
+            if (isModelTrained) {
+                const words = uploadedTickets
+                    .filter(t => t.problem_description)
+                    .flatMap(t => t.problem_description.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/))
+                    .filter(word => word.length > 3 && !STOP_WORDS.has(word));
+                
+                const wordCounts = words.reduce((acc, word) => {
+                    acc[word] = (acc[word] || 0) + 1;
+                    return acc;
+                }, {} as Record<string, number>);
+
+                const sortedWords = Object.entries(wordCounts)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 30)
+                    .map(([word, value]) => ({ word, value }));
+                resolve(sortedWords);
+            } else {
+                 const mockWords: Record<string, string[]> = {
+                    'Password Resets': ['login', 'password', 'reset', 'account', 'locked', 'expired', 'forgot'],
+                    'VPN Connectivity': ['vpn', 'connect', 'disconnect', 'slow', 'error', 'timeout', 'certificate'],
+                    'Software Access': ['access', 'denied', 'permission', 'request', 'salesforce', 'jira', 'dashboard'],
+                    'Printer Issues': ['printer', 'offline', 'jammed', 'toner', 'driver', 'network', 'scan'],
+                    'Hardware Failure': ['laptop', 'monitor', 'keyboard', 'mouse', 'broken', 'not working', 'blue screen'],
+                    'Other': ['issue', 'problem', 'help', 'email', 'system', 'slow', 'error'],
+                };
+                resolve((mockWords[category] || mockWords['Other']).map(word => ({
+                    word,
+                    value: Math.floor(Math.random() * 50) + 10
+                })));
+            }
         }, 700);
     });
 };
 
-export const uploadKnowledgeBase = (file: File): Promise<EdaReport> => {
-    return new Promise(resolve => {
-        setTimeout(() => {
-            resolve({
-                fileName: file.name,
-                fileSize: file.size,
-                rowCount: 15432,
-                columns: [
-                    { name: 'ticket_no', type: 'string', missing: 0 },
-                    { name: 'date', type: 'datetime', missing: 5 },
-                    { name: 'problem_description', type: 'string', missing: 12 },
-                    { name: 'category', type: 'categorical', missing: 0 },
-                    { name: 'priority', type: 'categorical', missing: 0 },
-                    { name: 'solution_text', type: 'string', missing: 88 },
-                ],
-                categoryDistribution: [
-                    { name: 'Software', value: 6210 },
-                    { name: 'Network', value: 4321 },
-                    { name: 'Hardware', value: 2100 },
-                    { name: 'Account Management', value: 1801 },
-                    { name: 'Database', value: 1000 },
-                ],
-            });
-        }, 2000);
+export const proposeCsvMapping = async (file: File): Promise<{ headers: string[], mapping: CsvHeaderMapping, rowCount: number }> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const text = event.target?.result as string;
+                const lines = text.trim().split(/\r\n|\n/);
+                if (lines.length < 2) {
+                    return reject(new Error("CSV file must have at least one header row and one data row."));
+                }
+                const headers = lines[0]?.split(',').map(h => h.trim().replace(/"/g, '')) || [];
+                if (headers.length === 0) {
+                    return reject(new Error("Could not parse headers from CSV file."));
+                }
+                
+                const mapping = await getMappingSuggestion(headers);
+                
+                resolve({
+                    headers,
+                    mapping,
+                    rowCount: lines.length - 1
+                });
+            } catch (error) {
+                reject(error as Error);
+            }
+        };
+        reader.onerror = (error) => reject(error);
+        reader.readAsText(file);
     });
 };
 
-let currentTrainingStatus: TrainingStatus = 'idle';
+export const uploadKnowledgeBase = (file: File, mapping: CsvHeaderMapping): Promise<EdaReport> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const text = event.target?.result as string;
+                const lines = text.trim().split(/\r\n|\n/);
+                const headers = lines[0]?.split(',').map(h => h.trim().replace(/"/g, '')) || [];
+                
+                const requiredField = 'problem_description';
+                if (!mapping[requiredField] || headers.indexOf(mapping[requiredField]!) === -1) {
+                     return reject(new Error(`The critical field '${requiredField}' is not mapped to a valid column.`));
+                }
+
+                const headerIndexMap: Record<string, number> = {};
+                for (const key in mapping) {
+                    if (mapping[key]) {
+                        const index = headers.indexOf(mapping[key]!);
+                        if (index !== -1) {
+                            headerIndexMap[key] = index;
+                        }
+                    }
+                }
+
+                // AI-powered data normalization for categories and priorities
+                const categoryIndex = headerIndexMap['category'];
+                const priorityIndex = headerIndexMap['priority'];
+                
+                let categoryMapping: Record<string, string> = {};
+                if (categoryIndex !== undefined) {
+                    const uniqueRawCategories = [...new Set(
+                        lines.slice(1).map(line => {
+                            const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                            return (values[categoryIndex] || '').trim().replace(/"/g, '');
+                        }).filter(Boolean)
+                    )];
+                    if (uniqueRawCategories.length > 0) {
+                        categoryMapping = await getNormalizedMappings(uniqueRawCategories, dynamicCategories, 'Category', 'Uncategorized');
+                    }
+                }
+
+                let priorityMapping: Record<string, string> = {};
+                if (priorityIndex !== undefined) {
+                    const uniqueRawPriorities = [...new Set(
+                        lines.slice(1).map(line => {
+                            const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                            return (values[priorityIndex] || '').trim().replace(/"/g, '');
+                        }).filter(Boolean)
+                    )];
+                    if (uniqueRawPriorities.length > 0) {
+                        priorityMapping = await getNormalizedMappings(uniqueRawPriorities, dynamicPriorities, 'Priority', 'Medium');
+                    }
+                }
+                
+                uploadedTickets = lines.slice(1).map((line, index): SimilarTicket | null => {
+                    const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                    const getVal = (key: string) => (values[headerIndexMap[key]] || '').trim().replace(/"/g, '');
+                    
+                    const problemDesc = getVal('problem_description');
+                    if (!problemDesc) return null; // Skip rows without a problem description
+                    
+                    const rawCategory = getVal('category');
+                    const finalCategory = categoryMapping[rawCategory] || 'Uncategorized';
+                    
+                    const rawPriority = getVal('priority');
+                    const finalPriority = priorityMapping[rawPriority] || 'Medium';
+
+                    return {
+                        ticket_no: getVal('ticket_no') || `UPL-${index}`,
+                        problem_description: problemDesc,
+                        category: finalCategory,
+                        priority: finalPriority,
+                        solution_text: getVal('solution_text'),
+                        similarity_score: 1,
+                    };
+                }).filter((t): t is SimilarTicket => t !== null);
+
+                // Dynamically add new categories and priorities found by Gemini
+                const allMappedCategories = new Set(Object.values(categoryMapping));
+                const existingCategorySet = new Set(dynamicCategories);
+                const newCategories = [...allMappedCategories].filter(c => !existingCategorySet.has(c) && c !== 'Uncategorized');
+                if (newCategories.length > 0) dynamicCategories.push(...newCategories);
+
+                const allMappedPriorities = new Set(Object.values(priorityMapping));
+                const existingPrioritySet = new Set(dynamicPriorities);
+                const newPriorities = [...allMappedPriorities].filter(p => !existingPrioritySet.has(p) && p !== 'Medium');
+                if (newPriorities.length > 0) dynamicPriorities.push(...newPriorities);
+
+
+                const categoryCounts = uploadedTickets.reduce((acc, ticket) => {
+                    const category = ticket.category || 'Other';
+                    acc[category] = (acc[category] || 0) + 1;
+                    return acc;
+                }, {} as Record<string, number>);
+
+                resolve({
+                    fileName: file.name,
+                    fileSize: file.size,
+                    rowCount: uploadedTickets.length,
+                    columns: Object.entries(mapping)
+                        .filter(([, headerName]) => headerName !== null && headers.includes(headerName!))
+                        .map(([fieldName, headerName]) => {
+                            const colIndex = headers.indexOf(headerName!);
+                            const missingCount = lines.slice(1).filter(line => {
+                                const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                                return !(values[colIndex] || '').trim();
+                            }).length;
+                            return { name: headerName!, type: 'string', missing: missingCount };
+                        }),
+                    categoryDistribution: Object.entries(categoryCounts).map(([name, value]) => ({ name, value })),
+                });
+            } catch (error) {
+                reject(error as Error);
+            }
+        };
+        reader.onerror = (error) => reject(error);
+        reader.readAsText(file);
+    });
+};
+
 export const initiateTraining = (): Promise<{ status: 'ok' }> => {
     currentTrainingStatus = 'in_progress';
+    // Reset to initial state before new training
+    isModelTrained = false;
+    
     setTimeout(() => {
+        processTrainedData();
         currentTrainingStatus = 'completed';
-        isModelTrained = true; // Set the flag here
-        console.log('[API] Model training complete. Knowledge base updated.');
+        isModelTrained = true;
+        console.log('[API] Model training complete. Dashboards now reflect new data.');
     }, 20000); // 20 seconds to simulate training
     return new Promise(resolve => setTimeout(() => resolve({ status: 'ok' }), 200));
 }
@@ -286,33 +450,29 @@ export const getTrainingStatus = (): Promise<{ status: TrainingStatus }> => {
 export const getProblemClusterData = (): Promise<{ data: SunburstNode | null, error?: string }> => {
     return new Promise(resolve => {
         setTimeout(() => {
-            // Simulate insufficient data case
-            // resolve({ data: null, error: 'insufficient_data' });
-
-            // Simulate success case
-            resolve({
-                data: {
-                    name: "root",
-                    children: [
-                        {
-                            name: "Network",
-                            children: [
-                                { name: "VPN", value: 450 },
-                                { name: "Wi-Fi", value: 300 },
-                                { name: "Firewall", value: 150 },
-                            ],
-                        },
-                        {
-                            name: "Software",
-                            children: [
-                                { name: "CRM", children: [{name: "Login", value: 200}, {name: "Reports", value: 150}] },
-                                { name: "Email", value: 400 },
-                            ],
-                        },
-                         { name: "Hardware", value: 250 },
-                    ],
+             if (isModelTrained) {
+                if(trainedRootCauses.length < 2){
+                    return resolve({ data: null, error: 'insufficient_data' });
                 }
-            });
+                const sunburstData: SunburstNode = {
+                    name: "root",
+                    children: trainedRootCauses
+                        .filter(c => c.name !== 'Other')
+                        .map(cause => ({ name: cause.name, value: cause.tickets }))
+                };
+                resolve({ data: sunburstData });
+            } else {
+                 resolve({
+                    data: {
+                        name: "root",
+                        children: [
+                            { name: "Network", children: [ { name: "VPN", value: 450 }, { name: "Wi-Fi", value: 300 } ] },
+                            { name: "Software", children: [ { name: "CRM", value: 350 }, { name: "Email", value: 400 } ] },
+                            { name: "Hardware", value: 250 },
+                        ],
+                    }
+                });
+            }
         }, 1500);
     });
 };
@@ -320,9 +480,10 @@ export const getProblemClusterData = (): Promise<{ data: SunburstNode | null, er
 export const getUserFrustrationData = (): Promise<SentimentData> => {
      return new Promise(resolve => {
         setTimeout(() => {
+            const baseData = isModelTrained ? [0.2, 0.25, 0.22, 0.3, 0.35, 0.31, 0.4, 0.38] : [0.3, 0.35, 0.32, 0.4, 0.45, 0.41, 0.5, 0.48];
             resolve({
                 labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
-                data: [0.3, 0.35, 0.32, 0.4, 0.45, 0.41, 0.5, 0.48],
+                data: baseData,
             });
         }, 1200);
     });
@@ -331,11 +492,21 @@ export const getUserFrustrationData = (): Promise<SentimentData> => {
 export const getPredictiveHotspots = (): Promise<PredictiveHotspot[]> => {
     return new Promise(resolve => {
         setTimeout(() => {
-            resolve([
-                { name: 'CRM System', riskScore: 0.85, trending: 'up' },
-                { name: 'VPN Service', riskScore: 0.65, trending: 'up' },
-                { name: 'Email Server', riskScore: 0.40, trending: 'stable' },
-            ]);
+            if (isModelTrained) {
+                const sortedCauses = [...trainedRootCauses].sort((a,b) => b.tickets - a.tickets);
+                const totalTickets = sortedCauses.reduce((sum, cause) => sum + cause.tickets, 1);
+                resolve(sortedCauses.slice(0, 3).map(cause => ({
+                    name: cause.name,
+                    riskScore: Math.min(0.95, cause.tickets / totalTickets * 2.5),
+                    trending: 'up',
+                })));
+            } else {
+                resolve([
+                    { name: 'CRM System', riskScore: 0.85, trending: 'up' },
+                    { name: 'VPN Service', riskScore: 0.65, trending: 'up' },
+                    { name: 'Email Server', riskScore: 0.40, trending: 'stable' },
+                ]);
+            }
         }, 800);
     });
 };
@@ -358,38 +529,50 @@ export const getTicketVolumeForecast = (): Promise<TicketVolumeForecastDataPoint
         setTimeout(() => {
             const data: TicketVolumeForecastDataPoint[] = [];
             const today = new Date();
+            const baseVolume = isModelTrained ? 120 : 180;
             
-            // Last 4 days (actual)
             for (let i = 4; i > 0; i--) {
                 const date = new Date(today);
                 date.setDate(today.getDate() - i);
                 data.push({
-                    day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-                    actual: Math.floor(Math.random() * 50) + 180, // 180-230
+                    day: date.toLocaleString('en-US', { weekday: 'short' }),
+                    actual: Math.floor(Math.random() * 50) + baseVolume,
                 });
             }
 
-            // Today (actual) + start of forecast
-            const todayActual = Math.floor(Math.random() * 50) + 190;
-            data.push({
-                day: 'Today',
-                actual: todayActual,
-                forecast: todayActual, // Forecast starts from today's actual
-            });
+            const todayActual = Math.floor(Math.random() * 50) + baseVolume + 10;
+            data.push({ day: 'Today', actual: todayActual, forecast: todayActual });
 
-            // Next 6 days (forecast)
             let lastForecast = todayActual;
             for (let i = 1; i <= 6; i++) {
                 const date = new Date(today);
                 date.setDate(today.getDate() + i);
-                 lastForecast = lastForecast + (Math.random() * 20 - 10); // Fluctuate
+                lastForecast = lastForecast + (Math.random() * 20 - 10);
                 data.push({
-                    day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-                    forecast: Math.max(150, Math.floor(lastForecast)), // ensure not negative
+                    day: date.toLocaleString('en-US', { weekday: 'short' }),
+                    forecast: Math.max(baseVolume - 30, Math.floor(lastForecast)),
                 });
             }
             
             resolve(data);
         }, 800);
     });
+};
+
+
+// Export state for socket service
+export const getTrainingState = () => {
+    const categoryTotals = trainedHeatmapData.reduce((acc, point) => {
+        acc[point.category] = (acc[point.category] || 0) + point.value;
+        return acc;
+    }, {} as Record<string, number>);
+
+    return {
+        isModelTrained,
+        dataDistribution: isModelTrained ? {
+            categories: dynamicCategories,
+            categoryWeights: dynamicCategories.map(cat => categoryTotals[cat] || 0),
+            priorities: dynamicPriorities,
+        } : null
+    };
 };
