@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { getInitialDashboardData, getWordCloudData } from '../../services/api';
 import { socketService } from '../../services/socketService';
@@ -81,21 +80,39 @@ const DashboardView: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3 bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
+        <div className="lg:col-span-3 bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 min-h-[352px] flex flex-col">
           <h3 className="text-lg font-semibold mb-4">Top Root Causes (Pareto)</h3>
-          <RootCauseFunnel data={rootCauses} onBarClick={handleBarClick} selectedCause={selectedCause} />
+          {rootCauses.length > 0 ? (
+            <RootCauseFunnel data={rootCauses} onBarClick={handleBarClick} selectedCause={selectedCause} />
+          ) : (
+            <div className="flex-grow flex items-center justify-center text-center text-gray-500 dark:text-gray-400">
+              <p>Train a model from the Knowledge Base page to see root cause analysis.</p>
+            </div>
+          )}
         </div>
-        <div className="lg:col-span-2 bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
+        <div className="lg:col-span-2 bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 min-h-[352px] flex flex-col">
           <h3 className="text-lg font-semibold mb-4">
             Problem Keywords for: <span className="text-light-accent dark:text-dark-accent">{selectedCause || '...'}</span>
           </h3>
-          <WordCloud data={wordCloudData} isLoading={isWordCloudLoading} />
+           {rootCauses.length > 0 ? (
+            <WordCloud data={wordCloudData} isLoading={isWordCloudLoading} />
+          ) : (
+            <div className="flex-grow flex items-center justify-center text-center text-gray-500 dark:text-gray-400">
+              <p>No root causes to analyze.</p>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
         <h3 className="text-lg font-semibold mb-4">Business Impact Heatmap</h3>
-        <ImpactHeatmap data={heatmapData} />
+        {heatmapData.length > 0 ? (
+          <ImpactHeatmap data={heatmapData} />
+        ) : (
+          <div className="flex-grow flex items-center justify-center text-center text-gray-500 dark:text-gray-400 min-h-[200px]">
+            <p>Train a model from the Knowledge Base page to see the business impact heatmap.</p>
+          </div>
+        )}
       </div>
     </div>
   );

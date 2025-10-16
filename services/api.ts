@@ -1,10 +1,11 @@
-import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint, CsvHeaderMapping } from '../types';
+import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint, CsvHeaderMapping, OutlierReport, ModelAccuracyReport } from '../types';
 import { TICKET_CATEGORIES as PREDEFINED_CATEGORIES, TICKET_PRIORITIES as PREDEFINED_PRIORITIES } from '../constants';
 import { getAiSuggestion, getMappingSuggestion, getNormalizedMappings } from '../services/geminiService';
 
 // --- STATE MANAGEMENT ---
 let isModelTrained = false;
 let currentTrainingStatus: TrainingStatus = 'idle';
+// These are used as a seed for normalization, but will be overwritten by the actual data post-training.
 let dynamicCategories = [...PREDEFINED_CATEGORIES];
 let dynamicPriorities = [...PREDEFINED_PRIORITIES];
 
@@ -23,11 +24,13 @@ const mockSimilarTickets: SimilarTicket[] = [
 ];
 
 // Stores for post-training data
+let rawParsedTickets: Record<string, string>[] = [];
 let uploadedTickets: SimilarTicket[] = [];
 let trainedKnowledgeBase: SimilarTicket[] = [];
 let trainedKpis: Kpis | null = null;
 let trainedRootCauses: RootCauseData[] = [];
 let trainedHeatmapData: HeatmapDataPoint[] = [];
+let modelAccuracyReport: ModelAccuracyReport | null = null;
 
 
 // Common words to ignore for better search accuracy
@@ -58,8 +61,8 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-const filterSimilarTickets = (query: string): SimilarTicket[] => {
-    const dataSource = isModelTrained ? trainedKnowledgeBase : mockSimilarTickets;
+const filterSimilarTickets = (query: string, dataSource: SimilarTicket[] = []): SimilarTicket[] => {
+    const searchData = dataSource.length > 0 ? dataSource : (isModelTrained ? trainedKnowledgeBase : mockSimilarTickets);
     
     const queryTokens = query
         .toLowerCase()
@@ -69,7 +72,7 @@ const filterSimilarTickets = (query: string): SimilarTicket[] => {
 
     if (queryTokens.length === 0) return [];
     
-    const scoredTickets = dataSource.map(ticket => {
+    const scoredTickets = searchData.map(ticket => {
         const ticketText = ` ${ticket.problem_description.toLowerCase().replace(/[^\w\s]/g, '')} `;
         let score = 0;
         queryTokens.forEach(token => {
@@ -111,10 +114,19 @@ export const analyzeIssue = async (formData: FormData): Promise<AnalysisResultDa
 
   const aiSuggestion = await getAiSuggestion(description, category, priority, screenshotBase64);
   const relevantSimilarIssues = filterSimilarTickets(description);
+  
+  // For trained model, predict category and priority from the most similar ticket
+  let predictedCategory = category || 'Network';
+  let predictedPriority = priority || 'High';
+  if (isModelTrained && relevantSimilarIssues.length > 0) {
+      predictedCategory = relevantSimilarIssues[0].category || predictedCategory;
+      predictedPriority = relevantSimilarIssues[0].priority || predictedPriority;
+  }
+
 
   return {
-    predictedModule: category || 'Network',
-    predictedPriority: priority || 'High',
+    predictedModule: predictedCategory,
+    predictedPriority: predictedPriority,
     similarIssues: relevantSimilarIssues,
     aiSuggestion: aiSuggestion,
   };
@@ -140,19 +152,81 @@ export const submitFeedback = (feedback: 'positive' | 'negative'): Promise<{ sta
 // --- DATA PROCESSING LOGIC ---
 
 function processTrainedData() {
-    if (uploadedTickets.length === 0) return;
+    if (uploadedTickets.length < 10) { // Need enough data to split
+        trainedKnowledgeBase = [...uploadedTickets];
+        modelAccuracyReport = null;
+        // Process other metrics even with small data
+    } else {
+        // 1. Train/Test Split (80/20)
+        const shuffled = [...uploadedTickets].sort(() => 0.5 - Math.random());
+        const splitIndex = Math.floor(shuffled.length * 0.8);
+        const trainingSet = shuffled.slice(0, splitIndex);
+        const testSet = shuffled.slice(splitIndex);
+        
+        trainedKnowledgeBase = trainingSet;
 
-    trainedKnowledgeBase = [...uploadedTickets];
+        // 2. Evaluate model on test set
+        let correctCategory = 0;
+        let correctPriority = 0;
+        const categoryPerformance: Record<string, {correct: number, total: number}> = {};
 
-    // 1. Calculate KPIs (simulated logic)
+        testSet.forEach(testTicket => {
+            // Simulate a prediction by finding the most similar ticket in the training set
+            const prediction = filterSimilarTickets(testTicket.problem_description, trainingSet);
+            
+            const predictedCategory = prediction.length > 0 ? prediction[0].category : 'Uncategorized';
+            const predictedPriority = prediction.length > 0 ? prediction[0].priority : 'Medium';
+
+            if (predictedCategory === testTicket.category) {
+                correctCategory++;
+            }
+            if (predictedPriority === testTicket.priority) {
+                correctPriority++;
+            }
+
+            // Track per-category accuracy
+            const actualCategory = testTicket.category || 'Uncategorized';
+            if (!categoryPerformance[actualCategory]) {
+                categoryPerformance[actualCategory] = { correct: 0, total: 0 };
+            }
+            categoryPerformance[actualCategory].total++;
+            if (predictedCategory === actualCategory) {
+                categoryPerformance[actualCategory].correct++;
+            }
+        });
+
+        const categoryAccuracy = (correctCategory / testSet.length) * 100;
+        const priorityAccuracy = (correctPriority / testSet.length) * 100;
+
+        // Generate AI notes
+        const notes = [`Model evaluated on a test set of ${testSet.length} tickets.`];
+        const wellPerforming = Object.entries(categoryPerformance).filter(([, v]) => (v.correct / v.total) > 0.85);
+        const poorlyPerforming = Object.entries(categoryPerformance).filter(([, v]) => (v.correct / v.total) < 0.6);
+        
+        if (wellPerforming.length > 0) {
+            notes.push(`Performance is strong in the '${wellPerforming.map(([k]) => k).join(', ')}' categor${wellPerforming.length > 1 ? 'ies' : 'y'}.`);
+        }
+        if (poorlyPerforming.length > 0) {
+            notes.push(`Consider providing more data or cleaning the '${poorlyPerforming.map(([k]) => k).join(', ')}' categor${poorlyPerforming.length > 1 ? 'ies' : 'y'} for better accuracy.`);
+        }
+
+        modelAccuracyReport = {
+            categoryAccuracy,
+            priorityAccuracy,
+            overallScore: (categoryAccuracy * 0.6) + (priorityAccuracy * 0.4),
+            notes,
+        };
+    }
+    
+
+    // Calculate KPIs (simulated logic on the entire dataset)
     trainedKpis = {
         deflectionRate: 85.2,
         avgTimeToResolution: 3.8,
         firstContactResolution: 95.0,
     };
 
-    // 2. Calculate Root Causes from descriptions
-    // Maps keywords to the main, standardized categories.
+    // Calculate Root Causes from descriptions
     const rootCauseKeywords: { [key: string]: string[] } = {
         'Software': ['error', 'crash', 'slow', 'freeze', 'bug', 'not responding', 'application', 'access', 'permission', 'denied', 'dashboard', 'feature', 'software'],
         'Hardware': ['printer', 'monitor', 'keyboard', 'laptop', 'mouse', 'broken', 'offline', 'jammed', 'driver', 'hardware'],
@@ -161,19 +235,26 @@ function processTrainedData() {
         'Database': ['database', 'sql', 'query', 'connection', 'record', 'data', 'table'],
     };
     
+    // FIX: Only use keyword sets for categories that actually exist in the trained data.
+    const activeRootCauseKeywords: { [key: string]: string[] } = {};
+    dynamicCategories.forEach(category => {
+        if (rootCauseKeywords[category]) {
+            activeRootCauseKeywords[category] = rootCauseKeywords[category];
+        }
+    });
+
     const causeCounts: { [key: string]: number } = {};
     uploadedTickets.forEach(ticket => {
         const description = ticket.problem_description.toLowerCase();
         let found = false;
-        // Prioritize keyword matching first for a deeper analysis
-        for (const cause in rootCauseKeywords) {
-            if (rootCauseKeywords[cause].some(keyword => description.includes(keyword))) {
+        // Iterate through the ACTIVE keywords, not the hardcoded ones.
+        for (const cause in activeRootCauseKeywords) {
+            if (activeRootCauseKeywords[cause].some(keyword => description.includes(keyword))) {
                 causeCounts[cause] = (causeCounts[cause] || 0) + 1;
                 found = true;
                 break;
             }
         }
-        // If no keyword matches, fall back to the ticket's assigned category
         if (!found) {
             const fallbackCategory = (ticket.category && ticket.category !== 'Uncategorized' && dynamicCategories.includes(ticket.category))
                 ? ticket.category
@@ -187,14 +268,13 @@ function processTrainedData() {
         .sort((a, b) => b.tickets - a.tickets)
         .slice(0, 6);
 
-    // 3. Calculate Heatmap Data
+    // Calculate Heatmap Data
     const heatmapCounts: { [key: string]: number } = {};
     uploadedTickets.forEach(ticket => {
         const key = `${ticket.category}|${ticket.priority}`;
         heatmapCounts[key] = (heatmapCounts[key] || 0) + 1;
     });
     
-    // Ensure all category/priority combos exist, even if with 0 value
     trainedHeatmapData = dynamicCategories.flatMap(cat => 
         dynamicPriorities.map(pri => {
             const key = `${cat}|${pri}`;
@@ -220,21 +300,8 @@ export const getInitialDashboardData = (): Promise<{ kpis: Kpis; rootCauses: Roo
             } else {
                 resolve({
                     kpis: initialKpis,
-                    rootCauses: [
-                        { name: 'Password Resets', tickets: 450 },
-                        { name: 'VPN Connectivity', tickets: 320 },
-                        { name: 'Software Access', tickets: 210 },
-                        { name: 'Printer Issues', tickets: 150 },
-                        { name: 'Hardware Failure', tickets: 80 },
-                        { name: 'Other', tickets: 190 },
-                    ],
-                    heatmap: PREDEFINED_CATEGORIES.flatMap(cat => 
-                        PREDEFINED_PRIORITIES.map(pri => ({
-                            category: cat,
-                            priority: pri,
-                            value: Math.floor(Math.random() * 100)
-                        }))
-                    ),
+                    rootCauses: [],
+                    heatmap: [],
                 });
             }
         }, 1000);
@@ -245,8 +312,9 @@ export const getWordCloudData = (category: string): Promise<{ word: string, valu
     return new Promise(resolve => {
         setTimeout(() => {
             if (isModelTrained) {
+                // FIX: Filter tickets by the selected category to generate relevant keywords.
                 const words = uploadedTickets
-                    .filter(t => t.problem_description)
+                    .filter(t => t.category === category && t.problem_description)
                     .flatMap(t => t.problem_description.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/))
                     .filter(word => word.length > 3 && !STOP_WORDS.has(word));
                 
@@ -279,6 +347,20 @@ export const getWordCloudData = (category: string): Promise<{ word: string, valu
 };
 
 export const proposeCsvMapping = async (file: File): Promise<{ headers: string[], mapping: CsvHeaderMapping, rowCount: number }> => {
+    // Reset all trained and in-progress data when a new file upload is initiated.
+    isModelTrained = false;
+    currentTrainingStatus = 'idle';
+    trainedKnowledgeBase = [];
+    trainedKpis = null;
+    trainedRootCauses = [];
+    trainedHeatmapData = [];
+    modelAccuracyReport = null;
+    rawParsedTickets = [];
+    uploadedTickets = [];
+    // Restore normalization helpers to their default state
+    dynamicCategories = [...PREDEFINED_CATEGORIES];
+    dynamicPriorities = [...PREDEFINED_PRIORITIES];
+
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = async (event) => {
@@ -309,7 +391,7 @@ export const proposeCsvMapping = async (file: File): Promise<{ headers: string[]
     });
 };
 
-export const uploadKnowledgeBase = (file: File, mapping: CsvHeaderMapping): Promise<EdaReport> => {
+export const uploadKnowledgeBase = (file: File, mapping: CsvHeaderMapping): Promise<{ report: EdaReport; categoryMapping: Record<string, string>; rawCategoryCounts: Record<string, number>; }> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = async (event) => {
@@ -333,93 +415,111 @@ export const uploadKnowledgeBase = (file: File, mapping: CsvHeaderMapping): Prom
                     }
                 }
 
-                // AI-powered data normalization for categories and priorities
-                const categoryIndex = headerIndexMap['category'];
-                const priorityIndex = headerIndexMap['priority'];
-                
-                let categoryMapping: Record<string, string> = {};
-                if (categoryIndex !== undefined) {
-                    const uniqueRawCategories = [...new Set(
-                        lines.slice(1).map(line => {
-                            const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-                            return (values[categoryIndex] || '').trim().replace(/"/g, '');
-                        }).filter(Boolean)
-                    )];
-                    if (uniqueRawCategories.length > 0) {
-                        categoryMapping = await getNormalizedMappings(uniqueRawCategories, dynamicCategories, 'Category', 'Uncategorized');
-                    }
-                }
-
-                let priorityMapping: Record<string, string> = {};
-                if (priorityIndex !== undefined) {
-                    const uniqueRawPriorities = [...new Set(
-                        lines.slice(1).map(line => {
-                            const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-                            return (values[priorityIndex] || '').trim().replace(/"/g, '');
-                        }).filter(Boolean)
-                    )];
-                    if (uniqueRawPriorities.length > 0) {
-                        priorityMapping = await getNormalizedMappings(uniqueRawPriorities, dynamicPriorities, 'Priority', 'Medium');
-                    }
-                }
-                
-                uploadedTickets = lines.slice(1).map((line, index): SimilarTicket | null => {
+                // Store raw parsed tickets for final cleaning step later
+                rawParsedTickets = lines.slice(1).map(line => {
                     const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-                    const getVal = (key: string) => (values[headerIndexMap[key]] || '').trim().replace(/"/g, '');
-                    
-                    const problemDesc = getVal('problem_description');
-                    if (!problemDesc) return null; // Skip rows without a problem description
-                    
-                    const rawCategory = getVal('category');
-                    const finalCategory = categoryMapping[rawCategory] || 'Uncategorized';
-                    
-                    const rawPriority = getVal('priority');
-                    const finalPriority = priorityMapping[rawPriority] || 'Medium';
+                    const ticketData: Record<string, string> = {};
+                    for (const key in headerIndexMap) {
+                        ticketData[key] = (values[headerIndexMap[key]] || '').trim().replace(/"/g, '');
+                    }
+                    return ticketData;
+                }).filter(t => t.problem_description); // Always filter out rows with no description
 
-                    return {
-                        ticket_no: getVal('ticket_no') || `UPL-${index}`,
-                        problem_description: problemDesc,
-                        category: finalCategory,
-                        priority: finalPriority,
-                        solution_text: getVal('solution_text'),
-                        similarity_score: 1,
+                const categoryIndex = headerIndexMap['category'];
+                const rawCategoryCounts: Record<string, number> = {};
+                if (categoryIndex !== undefined) {
+                    rawParsedTickets.forEach(ticket => {
+                        const rawCategory = ticket.category || '';
+                        if (rawCategory) {
+                            rawCategoryCounts[rawCategory] = (rawCategoryCounts[rawCategory] || 0) + 1;
+                        }
+                    });
+                }
+                
+                // Get initial AI-powered normalization for categories
+                const uniqueRawCategories = Object.keys(rawCategoryCounts);
+                let categoryMapping: Record<string, string> = {};
+                if (uniqueRawCategories.length > 0) {
+                    categoryMapping = await getNormalizedMappings(uniqueRawCategories, dynamicCategories, 'Category', 'Uncategorized');
+                }
+                
+                // --- OUTLIER DETECTION ---
+                const descriptionLengths = rawParsedTickets
+                    .map(t => t.problem_description?.length || 0)
+                    .filter(l => l > 0);
+
+                let outlierReport: OutlierReport;
+                if (descriptionLengths.length > 0) {
+                    const minLen = Math.min(...descriptionLengths);
+                    const maxLen = Math.max(...descriptionLengths);
+                    const avgLen = Math.round(descriptionLengths.reduce((a, b) => a + b, 0) / descriptionLengths.length);
+                    
+                    const SHORT_THRESHOLD = 15;
+                    const LONG_THRESHOLD = 500;
+                    
+                    const shortOutliers = descriptionLengths.filter(l => l < SHORT_THRESHOLD).length;
+                    const longOutliers = descriptionLengths.filter(l => l > LONG_THRESHOLD).length;
+                    
+                    const RARE_CATEGORY_THRESHOLD = Math.max(5, Math.floor(rawParsedTickets.length * 0.005));
+                    
+                    const rareCategories = Object.entries(rawCategoryCounts)
+                        .filter(([, count]) => count < RARE_CATEGORY_THRESHOLD)
+                        .map(([name, count]) => ({ name, count }))
+                        .sort((a,b) => a.count - b.count);
+
+                    outlierReport = {
+                        rareCategories,
+                        descriptionLength: {
+                            min: minLen,
+                            max: maxLen,
+                            avg: avgLen,
+                            shortOutlierThreshold: SHORT_THRESHOLD,
+                            longOutlierThreshold: LONG_THRESHOLD,
+                            shortOutliers,
+                            longOutliers,
+                        }
                     };
-                }).filter((t): t is SimilarTicket => t !== null);
+                } else {
+                    outlierReport = {
+                        rareCategories: [],
+                        descriptionLength: { min: 0, max: 0, avg: 0, shortOutlierThreshold: 15, longOutlierThreshold: 500, shortOutliers: 0, longOutliers: 0 }
+                    };
+                }
 
-                // Dynamically add new categories and priorities found by Gemini
-                const allMappedCategories = new Set(Object.values(categoryMapping));
-                const existingCategorySet = new Set(dynamicCategories);
-                const newCategories = [...allMappedCategories].filter(c => !existingCategorySet.has(c) && c !== 'Uncategorized');
-                if (newCategories.length > 0) dynamicCategories.push(...newCategories);
-
-                const allMappedPriorities = new Set(Object.values(priorityMapping));
-                const existingPrioritySet = new Set(dynamicPriorities);
-                const newPriorities = [...allMappedPriorities].filter(p => !existingPrioritySet.has(p) && p !== 'Medium');
-                if (newPriorities.length > 0) dynamicPriorities.push(...newPriorities);
-
-
-                const categoryCounts = uploadedTickets.reduce((acc, ticket) => {
+                // Create a temporary set of tickets to generate the category distribution
+                const tempTickets = rawParsedTickets.map((rawTicket, index) => {
+                    const finalCategory = categoryMapping[rawTicket.category] || 'Uncategorized';
+                    return { ...rawTicket, category: finalCategory };
+                });
+                
+                const categoryCounts = tempTickets.reduce((acc, ticket) => {
                     const category = ticket.category || 'Other';
                     acc[category] = (acc[category] || 0) + 1;
                     return acc;
                 }, {} as Record<string, number>);
 
                 resolve({
-                    fileName: file.name,
-                    fileSize: file.size,
-                    rowCount: uploadedTickets.length,
-                    columns: Object.entries(mapping)
-                        .filter(([, headerName]) => headerName !== null && headers.includes(headerName!))
-                        .map(([fieldName, headerName]) => {
-                            const colIndex = headers.indexOf(headerName!);
-                            const missingCount = lines.slice(1).filter(line => {
-                                const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-                                return !(values[colIndex] || '').trim();
-                            }).length;
-                            return { name: headerName!, type: 'string', missing: missingCount };
-                        }),
-                    categoryDistribution: Object.entries(categoryCounts).map(([name, value]) => ({ name, value })),
+                    report: {
+                        fileName: file.name,
+                        fileSize: file.size,
+                        rowCount: rawParsedTickets.length,
+                        columns: Object.entries(mapping)
+                            .filter(([, headerName]) => headerName !== null && headers.includes(headerName!))
+                            .map(([fieldName, headerName]) => {
+                                const colIndex = headers.indexOf(headerName!);
+                                const missingCount = lines.slice(1).filter(line => {
+                                    const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                                    return !(values[colIndex] || '').trim();
+                                }).length;
+                                return { name: headerName!, type: 'string', missing: missingCount };
+                            }),
+                        categoryDistribution: Object.entries(categoryCounts).map(([name, value]) => ({ name, value })),
+                        outlierReport,
+                    },
+                    categoryMapping,
+                    rawCategoryCounts,
                 });
+
             } catch (error) {
                 reject(error as Error);
             }
@@ -429,10 +529,45 @@ export const uploadKnowledgeBase = (file: File, mapping: CsvHeaderMapping): Prom
     });
 };
 
+export const finalizeTicketData = (finalCategoryMapping: Record<string, string>): Promise<{ cleanedRowCount: number }> => {
+    return new Promise(async (resolve, reject) => {
+        // Full priority normalization on the final step
+        const uniqueRawPriorities = [...new Set(rawParsedTickets.map(t => t.priority).filter(Boolean))];
+        let priorityMapping: Record<string, string> = {};
+        if (uniqueRawPriorities.length > 0) {
+            // Use PREDEFINED_PRIORITIES to guide normalization
+            priorityMapping = await getNormalizedMappings(uniqueRawPriorities, PREDEFINED_PRIORITIES, 'Priority', 'Medium');
+        }
+
+        uploadedTickets = rawParsedTickets.map((rawTicket, index): SimilarTicket => {
+            return {
+                ticket_no: rawTicket.ticket_no || `UPL-${index}`,
+                problem_description: rawTicket.problem_description,
+                category: finalCategoryMapping[rawTicket.category] || 'Uncategorized',
+                priority: priorityMapping[rawTicket.priority] || 'Medium',
+                solution_text: rawTicket.solution_text,
+                similarity_score: 1,
+            };
+        });
+
+        // CRITICAL: Overwrite the dynamic lists with ONLY the categories and priorities
+        // found in the actual, cleaned data. This prevents old data from persisting.
+        dynamicCategories = [...new Set(uploadedTickets.map(t => t.category).filter(c => c && c !== 'Uncategorized') as string[])];
+        dynamicPriorities = [...new Set(uploadedTickets.map(t => t.priority).filter(Boolean) as string[])];
+        
+        console.log('[API] Finalized data cleaning. Total tickets prepared:', uploadedTickets.length);
+        console.log('[API] Active Categories:', dynamicCategories);
+        console.log('[API] Active Priorities:', dynamicPriorities);
+        resolve({ cleanedRowCount: uploadedTickets.length });
+    });
+};
+
+
 export const initiateTraining = (): Promise<{ status: 'ok' }> => {
     currentTrainingStatus = 'in_progress';
     // Reset to initial state before new training
     isModelTrained = false;
+    modelAccuracyReport = null;
     
     setTimeout(() => {
         processTrainedData();
@@ -446,6 +581,10 @@ export const initiateTraining = (): Promise<{ status: 'ok' }> => {
 export const getTrainingStatus = (): Promise<{ status: TrainingStatus }> => {
     return new Promise(resolve => setTimeout(() => resolve({ status: currentTrainingStatus }), 300));
 }
+
+export const getModelAccuracyReport = (): Promise<ModelAccuracyReport | null> => {
+    return new Promise(resolve => setTimeout(() => resolve(modelAccuracyReport), 300));
+};
 
 export const getProblemClusterData = (): Promise<{ data: SunburstNode | null, error?: string }> => {
     return new Promise(resolve => {

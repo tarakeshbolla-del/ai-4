@@ -22,10 +22,20 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data }) => {
   };
 
   // Dynamically get categories and priorities from the data
-  // Fix: Explicitly type 'categories' as a string array to fix TypeScript inference issue.
-  const categories: string[] = [...new Set(data.map(d => d.category))];
-  // Fix: Explicitly type 'priorities' as a string array to fix TypeScript inference issue.
-  const priorities: string[] = [...new Set(data.map(d => d.priority))];
+  // Fix: Replaced `new Set()` with `reduce()` to ensure correct type inference and avoid 'unknown[]' error.
+  const categories: string[] = data.reduce((acc: string[], point) => {
+    if (!acc.includes(point.category)) {
+      acc.push(point.category);
+    }
+    return acc;
+  }, []);
+  // Fix: Replaced `new Set()` with `reduce()` to ensure correct type inference and avoid 'unknown[]' error.
+  const priorities: string[] = data.reduce((acc: string[], point) => {
+    if (!acc.includes(point.priority)) {
+      acc.push(point.priority);
+    }
+    return acc;
+  }, []);
 
   // Ensure a consistent, logical order for priorities
   const priorityOrder = ['Low', 'Medium', 'High', 'Critical'];

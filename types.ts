@@ -1,3 +1,4 @@
+
 export interface SimilarTicket {
   ticket_no: string;
   problem_description: string;
@@ -33,12 +34,26 @@ export interface HeatmapDataPoint {
   value: number;
 }
 
+export interface OutlierReport {
+  rareCategories: { name: string; count: number }[];
+  descriptionLength: {
+    min: number;
+    max: number;
+    avg: number;
+    shortOutlierThreshold: number;
+    longOutlierThreshold: number;
+    shortOutliers: number;
+    longOutliers: number;
+  };
+}
+
 export interface EdaReport {
   fileName: string;
   fileSize: number;
   rowCount: number;
   columns: { name: string; type: string; missing: number }[];
   categoryDistribution: { name: string; value: number }[];
+  outlierReport: OutlierReport;
 }
 
 export type TrainingStatus = 'idle' | 'in_progress' | 'completed' | 'failed';
@@ -73,3 +88,10 @@ export interface TicketVolumeForecastDataPoint {
 }
 
 export type CsvHeaderMapping = Record<string, string | null>;
+
+export interface ModelAccuracyReport {
+    categoryAccuracy: number;
+    priorityAccuracy: number;
+    overallScore: number;
+    notes: string[];
+}
