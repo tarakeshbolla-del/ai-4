@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { getInitialDashboardData, getWordCloudData } from '../../services/api';
 import { socketService } from '../../services/socketService';
 import type { Kpis, RootCauseData, HeatmapDataPoint } from '../../types';
@@ -16,6 +17,7 @@ const DashboardView: React.FC = () => {
   const [selectedCause, setSelectedCause] = useState<string | null>(null);
   const [wordCloudData, setWordCloudData] = useState<{ word: string, value: number }[]>([]);
   const [isWordCloudLoading, setIsWordCloudLoading] = useState(false);
+  const [searchParams] = useSearchParams();
 
   const handleBarClick = useCallback((cause: string) => {
     if (selectedCause === cause) {
@@ -31,17 +33,13 @@ const DashboardView: React.FC = () => {
     });
   }, [selectedCause]);
 
+  // Effect 1: Load all initial data and set up sockets. Runs once.
   useEffect(() => {
     getInitialDashboardData().then(data => {
       setKpis(data.kpis);
       setRootCauses(data.rootCauses);
       setHeatmapData(data.heatmap);
       setLoading(false);
-      
-      // Set initial word cloud for top cause
-      if (data.rootCauses.length > 0) {
-        handleBarClick(data.rootCauses[0].name);
-      }
     });
 
     socketService.connect();
@@ -64,8 +62,36 @@ const DashboardView: React.FC = () => {
     return () => {
       socketService.disconnect();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Effect 2: Respond to filter changes from URL or set initial default view.
+  useEffect(() => {
+    if (loading) return; // Wait until data is loaded
+
+    const filter = searchParams.get('filter');
+    const validCauses = new Set(rootCauses.map(rc => rc.name));
+
+    if (filter && validCauses.has(filter)) {
+      // A valid filter is present. If it's not already selected, update the view.
+      if (selectedCause !== filter) {
+        setSelectedCause(filter);
+        setIsWordCloudLoading(true);
+        getWordCloudData(filter).then(data => {
+            setWordCloudData(data);
+            setIsWordCloudLoading(false);
+        });
+      }
+    } else if (!selectedCause && rootCauses.length > 0) {
+      // No filter, and nothing is selected yet (initial load case). Default to the first cause.
+      setSelectedCause(rootCauses[0].name);
+      setIsWordCloudLoading(true);
+      getWordCloudData(rootCauses[0].name).then(data => {
+          setWordCloudData(data);
+          setIsWordCloudLoading(false);
+      });
+    }
+  }, [searchParams, loading, rootCauses, selectedCause]);
+
 
   if (loading) {
     return <div className="flex justify-center items-center h-full"><LoadingSpinner /></div>;

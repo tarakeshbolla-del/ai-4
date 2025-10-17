@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getProblemClusterData, getUserFrustrationData, getPredictiveHotspots, getSlaBreachTickets, getTicketVolumeForecast } from '../../services/api';
 import type { SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint } from '../../types';
 import SunburstChart from './charts/SunburstChart';
@@ -28,6 +29,8 @@ const AnalyticsView: React.FC = () => {
 
     const [ticketForecast, setTicketForecast] = useState<TicketVolumeForecastDataPoint[]>([]);
     const [isForecastLoading, setIsForecastLoading] = useState(true);
+
+    const navigate = useNavigate();
 
     useEffect(() => {
         setIsClusterLoading(true);
@@ -71,6 +74,10 @@ const AnalyticsView: React.FC = () => {
         });
     }, []);
 
+    const handleHotspotClick = (name: string) => {
+        navigate(`/admin/dashboard?filter=${encodeURIComponent(name)}`);
+    };
+
     return (
         <div className="space-y-8">
             <h2 className="text-3xl font-bold tracking-tight">Analytics & Reporting</h2>
@@ -104,11 +111,15 @@ const AnalyticsView: React.FC = () => {
              <div className="grid grid-cols-1 gap-6">
                  <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 h-72">
                     <h3 className="text-lg font-semibold mb-2">Predictive Hotspots</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">At-risk applications based on recent trends.</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">At-risk applications based on recent trends. Click to investigate.</p>
                     {isHotspotsLoading ? <div className="h-24 flex items-center justify-center"><LoadingSpinner /></div> : (
                         <ul className="space-y-3">
                             {hotspots.map(hotspot => (
-                                <li key={hotspot.name} className="flex items-center justify-between">
+                                <li 
+                                    key={hotspot.name} 
+                                    className="flex items-center justify-between p-2 -m-2 rounded-lg cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50"
+                                    onClick={() => handleHotspotClick(hotspot.name)}
+                                >
                                     <div className="flex-1">
                                         <p className="font-medium truncate">{hotspot.name}</p>
                                         <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5 mt-1">

@@ -1,6 +1,6 @@
 import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint, CsvHeaderMapping, OutlierReport, ModelAccuracyReport } from '../types';
 import { TICKET_CATEGORIES as PREDEFINED_CATEGORIES, TICKET_PRIORITIES as PREDEFINED_PRIORITIES } from '../constants';
-import { getAiSuggestion, getMappingSuggestion, getNormalizedMappings } from '../services/geminiService';
+import { getAiSuggestion, getMappingSuggestion, getNormalizedMappings, generateKeywords } from '../services/geminiService';
 
 // --- STATE MANAGEMENT ---
 let isModelTrained = false;
@@ -31,6 +31,11 @@ let trainedKpis: Kpis | null = null;
 let trainedRootCauses: RootCauseData[] = [];
 let trainedHeatmapData: HeatmapDataPoint[] = [];
 let modelAccuracyReport: ModelAccuracyReport | null = null;
+let trainedWordCloudDataCache: Map<string, { word: string, value: number }[]> = new Map();
+
+// New state for performance optimization
+type InvertedIndex = Map<string, number[]>; // Map<token, ticket_indices[]>
+let trainedInvertedIndex: InvertedIndex | null = null;
 
 
 // Common words to ignore for better search accuracy
@@ -72,7 +77,24 @@ const filterSimilarTickets = (query: string, dataSource: SimilarTicket[] = []): 
 
     if (queryTokens.length === 0) return [];
     
-    const scoredTickets = searchData.map(ticket => {
+    let candidateTickets: SimilarTicket[] = searchData;
+
+    // OPTIMIZATION: Use inverted index if available for the given data source
+    if (trainedInvertedIndex && searchData === trainedKnowledgeBase) {
+        const candidateIndices = new Set<number>();
+        queryTokens.forEach(token => {
+            const indices = trainedInvertedIndex!.get(token);
+            if (indices) {
+                indices.forEach(index => candidateIndices.add(index));
+            }
+        });
+        // If we found candidates, filter the main list. Otherwise, search the full list.
+        if (candidateIndices.size > 0 && candidateIndices.size < searchData.length) {
+             candidateTickets = Array.from(candidateIndices).map(index => searchData[index]);
+        }
+    }
+
+    const scoredTickets = candidateTickets.map(ticket => {
         const ticketText = ` ${ticket.problem_description.toLowerCase().replace(/[^\w\s]/g, '')} `;
         let score = 0;
         queryTokens.forEach(token => {
@@ -151,7 +173,7 @@ export const submitFeedback = (feedback: 'positive' | 'negative'): Promise<{ sta
 
 // --- DATA PROCESSING LOGIC ---
 
-function processTrainedData() {
+async function processTrainedData() {
     if (uploadedTickets.length < 10) { // Need enough data to split
         trainedKnowledgeBase = [...uploadedTickets];
         modelAccuracyReport = null;
@@ -165,13 +187,33 @@ function processTrainedData() {
         
         trainedKnowledgeBase = trainingSet;
 
+        // OPTIMIZATION: Build an inverted index for the training set to speed up evaluation.
+        trainedInvertedIndex = new Map();
+        trainingSet.forEach((ticket, index) => {
+            const ticketText = `${ticket.problem_description.toLowerCase()} ${ticket.category?.toLowerCase() || ''}`;
+            const tokens = Array.from(new Set( // Use Set to store unique tokens per ticket
+                ticketText
+                    .replace(/[^\w\s]/g, '')
+                    .split(/\s+/)
+                    .filter(word => word.length > 2 && !STOP_WORDS.has(word))
+            ));
+            
+            tokens.forEach(token => {
+                if (!trainedInvertedIndex!.has(token)) {
+                    trainedInvertedIndex!.set(token, []);
+                }
+                trainedInvertedIndex!.get(token)!.push(index);
+            });
+        });
+
+
         // 2. Evaluate model on test set
         let correctCategory = 0;
         let correctPriority = 0;
         const categoryPerformance: Record<string, {correct: number, total: number}> = {};
 
         testSet.forEach(testTicket => {
-            // Simulate a prediction by finding the most similar ticket in the training set
+            // Simulate a prediction by finding the most similar ticket in the training set (now faster with index)
             const prediction = filterSimilarTickets(testTicket.problem_description, trainingSet);
             
             const predictedCategory = prediction.length > 0 ? prediction[0].category : 'Uncategorized';
@@ -281,6 +323,26 @@ function processTrainedData() {
             return { category: cat, priority: pri, value: heatmapCounts[key] || 0 };
         })
     );
+    
+    // Pre-calculate and cache word cloud data
+    console.log('[API] Pre-calculating word cloud data for top root causes...');
+    trainedWordCloudDataCache.clear();
+    const keywordPromises = trainedRootCauses.map(async (cause) => {
+        const descriptions = uploadedTickets
+            .filter(t => t.category === cause.name && t.problem_description)
+            .map(t => t.problem_description);
+        
+        if (descriptions.length > 0) {
+            const shuffled = descriptions.sort(() => 0.5 - Math.random());
+            const sample = shuffled.slice(0, 50); // Take a sample
+            const keywords = await generateKeywords(sample, cause.name);
+            trainedWordCloudDataCache.set(cause.name, keywords);
+            console.log(`[API] Cached keywords for '${cause.name}'`);
+        }
+    });
+
+    await Promise.all(keywordPromises);
+    console.log('[API] Finished pre-calculating word cloud data.');
 
     console.log('[API] Finished processing trained data. Dashboards will now use realistic data.');
 }
@@ -309,51 +371,57 @@ export const getInitialDashboardData = (): Promise<{ kpis: Kpis; rootCauses: Roo
 };
 
 export const getWordCloudData = (category: string): Promise<{ word: string, value: number }[]> => {
-    return new Promise(resolve => {
-        setTimeout(() => {
-            if (isModelTrained) {
-                // FIX: Filter tickets by the selected category to generate relevant keywords.
-                const words = uploadedTickets
-                    .filter(t => t.category === category && t.problem_description)
-                    .flatMap(t => t.problem_description.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/))
-                    .filter(word => word.length > 3 && !STOP_WORDS.has(word));
-                
-                const wordCounts = words.reduce((acc, word) => {
-                    acc[word] = (acc[word] || 0) + 1;
-                    return acc;
-                }, {} as Record<string, number>);
-
-                const sortedWords = Object.entries(wordCounts)
-                    .sort(([, a], [, b]) => b - a)
-                    .slice(0, 30)
-                    .map(([word, value]) => ({ word, value }));
-                resolve(sortedWords);
-            } else {
-                 const mockWords: Record<string, string[]> = {
-                    'Password Resets': ['login', 'password', 'reset', 'account', 'locked', 'expired', 'forgot'],
-                    'VPN Connectivity': ['vpn', 'connect', 'disconnect', 'slow', 'error', 'timeout', 'certificate'],
-                    'Software Access': ['access', 'denied', 'permission', 'request', 'salesforce', 'jira', 'dashboard'],
-                    'Printer Issues': ['printer', 'offline', 'jammed', 'toner', 'driver', 'network', 'scan'],
-                    'Hardware Failure': ['laptop', 'monitor', 'keyboard', 'mouse', 'broken', 'not working', 'blue screen'],
-                    'Other': ['issue', 'problem', 'help', 'email', 'system', 'slow', 'error'],
-                };
-                resolve((mockWords[category] || mockWords['Other']).map(word => ({
-                    word,
-                    value: Math.floor(Math.random() * 50) + 10
-                })));
+    return new Promise(async (resolve) => {
+        if (isModelTrained) {
+            // OPTIMIZATION: Use pre-calculated cache for instant retrieval.
+            if (trainedWordCloudDataCache.has(category)) {
+                resolve(trainedWordCloudDataCache.get(category)!);
+                return;
             }
-        }, 700);
+
+            // Fallback for safety (e.g., if a new category appears dynamically)
+            console.warn(`[API] Word cloud cache miss for category: ${category}. Generating on-demand.`);
+            const descriptions = uploadedTickets
+                .filter(t => t.category === category && t.problem_description)
+                .map(t => t.problem_description);
+
+            if (descriptions.length > 0) {
+                const shuffled = descriptions.sort(() => 0.5 - Math.random());
+                const sample = shuffled.slice(0, 50);
+                const keywords = await generateKeywords(sample, category);
+                trainedWordCloudDataCache.set(category, keywords); // Cache the result for next time
+                resolve(keywords);
+            } else {
+                resolve([]);
+            }
+        } else {
+            const mockWords: Record<string, string[]> = {
+                'Password Resets': ['login', 'password', 'reset', 'account', 'locked', 'expired', 'forgot'],
+                'VPN Connectivity': ['vpn', 'connect', 'disconnect', 'slow', 'error', 'timeout', 'certificate'],
+                'Software Access': ['access', 'denied', 'permission', 'request', 'salesforce', 'jira', 'dashboard'],
+                'Printer Issues': ['printer', 'offline', 'jammed', 'toner', 'driver', 'network', 'scan'],
+                'Hardware Failure': ['laptop', 'monitor', 'keyboard', 'mouse', 'broken', 'not working', 'blue screen'],
+                'Other': ['issue', 'problem', 'help', 'email', 'system', 'slow', 'error'],
+            };
+            resolve((mockWords[category] || mockWords['Other']).map(word => ({
+                word,
+                value: Math.floor(Math.random() * 50) + 10
+            })));
+        }
     });
 };
+
 
 export const proposeCsvMapping = async (file: File): Promise<{ headers: string[], mapping: CsvHeaderMapping, rowCount: number }> => {
     // Reset all trained and in-progress data when a new file upload is initiated.
     isModelTrained = false;
     currentTrainingStatus = 'idle';
     trainedKnowledgeBase = [];
+    trainedInvertedIndex = null;
     trainedKpis = null;
     trainedRootCauses = [];
     trainedHeatmapData = [];
+    trainedWordCloudDataCache.clear();
     modelAccuracyReport = null;
     rawParsedTickets = [];
     uploadedTickets = [];
@@ -568,13 +636,14 @@ export const initiateTraining = (): Promise<{ status: 'ok' }> => {
     // Reset to initial state before new training
     isModelTrained = false;
     modelAccuracyReport = null;
+    trainedInvertedIndex = null;
     
-    setTimeout(() => {
-        processTrainedData();
+    setTimeout(async () => {
+        await processTrainedData();
         currentTrainingStatus = 'completed';
         isModelTrained = true;
         console.log('[API] Model training complete. Dashboards now reflect new data.');
-    }, 20000); // 20 seconds to simulate training
+    }, 5000); // OPTIMIZATION: Reduced from 20s to 5s to simulate faster training.
     return new Promise(resolve => setTimeout(() => resolve({ status: 'ok' }), 200));
 }
 
@@ -589,17 +658,58 @@ export const getModelAccuracyReport = (): Promise<ModelAccuracyReport | null> =>
 export const getProblemClusterData = (): Promise<{ data: SunburstNode | null, error?: string }> => {
     return new Promise(resolve => {
         setTimeout(() => {
-             if (isModelTrained) {
-                if(trainedRootCauses.length < 2){
+            if (isModelTrained) {
+                if (trainedRootCauses.length < 2) {
                     return resolve({ data: null, error: 'insufficient_data' });
                 }
+
+                const keywordSubClusters: Record<string, Record<string, number>> = {};
+                const subClusterKeywords: Record<string, string[]> = {
+                    'Software': ['crm', 'email', 'access', 'permission', 'dashboard', 'feature', 'slow', 'crash', 'login', 'application'],
+                    'Hardware': ['printer', 'monitor', 'keyboard', 'laptop', 'mouse', 'broken', 'offline', 'driver'],
+                    'Network': ['vpn', 'wifi', 'network', 'connect', 'internet', 'disconnected', 'timeout', 'certificate'],
+                    'Account Management': ['password', 'login', 'locked', 'reset', 'account', 'credential', 'expired'],
+                    'Database': ['database', 'sql', 'query', 'connection', 'record', 'data', 'table'],
+                };
+
+                uploadedTickets.forEach(ticket => {
+                    const category = ticket.category || 'Other';
+                    if (!subClusterKeywords[category]) return;
+                    
+                    const description = ticket.problem_description.toLowerCase();
+                    
+                    subClusterKeywords[category].forEach(keyword => {
+                        if (description.includes(keyword)) {
+                            if (!keywordSubClusters[category]) {
+                                keywordSubClusters[category] = {};
+                            }
+                            const capitalizedKeyword = keyword.charAt(0).toUpperCase() + keyword.slice(1);
+                            keywordSubClusters[category][capitalizedKeyword] = (keywordSubClusters[category][capitalizedKeyword] || 0) + 1;
+                        }
+                    });
+                });
+
                 const sunburstData: SunburstNode = {
                     name: "root",
                     children: trainedRootCauses
                         .filter(c => c.name !== 'Other')
-                        .map(cause => ({ name: cause.name, value: cause.tickets }))
+                        .map(cause => {
+                            const subClusters = keywordSubClusters[cause.name];
+                            if (subClusters) {
+                                const children = Object.entries(subClusters)
+                                    .sort(([, a], [, b]) => b - a)
+                                    .slice(0, 5) // Top 5 sub-clusters
+                                    .map(([name, value]) => ({ name, value }));
+                                
+                                if (children.length > 0) {
+                                    return { name: cause.name, children };
+                                }
+                            }
+                            return { name: cause.name, value: cause.tickets };
+                        })
                 };
                 resolve({ data: sunburstData });
+
             } else {
                  resolve({
                     data: {
@@ -619,11 +729,49 @@ export const getProblemClusterData = (): Promise<{ data: SunburstNode | null, er
 export const getUserFrustrationData = (): Promise<SentimentData> => {
      return new Promise(resolve => {
         setTimeout(() => {
-            const baseData = isModelTrained ? [0.2, 0.25, 0.22, 0.3, 0.35, 0.31, 0.4, 0.38] : [0.3, 0.35, 0.32, 0.4, 0.45, 0.41, 0.5, 0.48];
-            resolve({
-                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
-                data: baseData,
-            });
+            if (isModelTrained && uploadedTickets.length >= 8) {
+                const frustrationKeywords = ['urgent', 'asap', 'critical', 'down', 'immediately', 'frustrated', 'angry', 'unacceptable', 'blocker'];
+                const priorityWeight: Record<string, number> = { 'Low': 0.1, 'Medium': 0.3, 'High': 0.6, 'Critical': 1.0 };
+                
+                const sentimentScores: number[] = [];
+                const chunkSize = Math.floor(uploadedTickets.length / 8);
+            
+                for (let i = 0; i < 8; i++) {
+                    const chunk = uploadedTickets.slice(i * chunkSize, (i + 1) * chunkSize);
+                    if (chunk.length === 0) {
+                        sentimentScores.push(i > 0 ? sentimentScores[i-1] : 0.2); // Avoid empty chunks, carry over last value
+                        continue;
+                    };
+            
+                    let totalScore = 0;
+                    chunk.forEach(ticket => {
+                        let score = priorityWeight[ticket.priority || 'Medium'] || 0.3;
+                        const description = ticket.problem_description.toLowerCase();
+                        frustrationKeywords.forEach(keyword => {
+                            if (description.includes(keyword)) {
+                                score += 0.2;
+                            }
+                        });
+                        totalScore += Math.min(1.0, score);
+                    });
+            
+                    const avgScore = totalScore / chunk.length;
+                    sentimentScores.push(parseFloat(avgScore.toFixed(2)));
+                }
+                
+                resolve({
+                    labels: ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5', 'Period 6', 'Period 7', 'Period 8'],
+                    data: sentimentScores,
+                });
+
+            } else {
+                // Fallback to original mock
+                const baseData = isModelTrained ? [0.2, 0.25, 0.22, 0.3, 0.35, 0.31, 0.4, 0.38] : [0.3, 0.35, 0.32, 0.4, 0.45, 0.41, 0.5, 0.48];
+                resolve({
+                    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
+                    data: baseData,
+                });
+            }
         }, 1200);
     });
 };
@@ -631,13 +779,54 @@ export const getUserFrustrationData = (): Promise<SentimentData> => {
 export const getPredictiveHotspots = (): Promise<PredictiveHotspot[]> => {
     return new Promise(resolve => {
         setTimeout(() => {
-            if (isModelTrained) {
+            if (isModelTrained && uploadedTickets.length > 20) {
+                const sortedCauses = [...trainedRootCauses].sort((a,b) => b.tickets - a.tickets);
+                const totalTickets = sortedCauses.reduce((sum, cause) => sum + cause.tickets, 1);
+                
+                const midPoint = Math.floor(uploadedTickets.length / 2);
+                const firstHalf = uploadedTickets.slice(0, midPoint);
+                const secondHalf = uploadedTickets.slice(midPoint);
+            
+                const firstHalfCounts: Record<string, number> = {};
+                firstHalf.forEach(t => {
+                    const category = t.category || 'Other';
+                    firstHalfCounts[category] = (firstHalfCounts[category] || 0) + 1;
+                });
+            
+                const secondHalfCounts: Record<string, number> = {};
+                secondHalf.forEach(t => {
+                    const category = t.category || 'Other';
+                    secondHalfCounts[category] = (secondHalfCounts[category] || 0) + 1;
+                });
+            
+                const hotspots = sortedCauses.slice(0, 3).map(cause => {
+                    const firstCount = firstHalfCounts[cause.name] || 0;
+                    const secondCount = secondHalfCounts[cause.name] || 0;
+                    
+                    let trending: 'up' | 'down' | 'stable' = 'stable';
+                    const diff = secondCount - firstCount;
+                    // Use a small threshold to avoid flagging minor fluctuations
+                    if (firstCount > 5 && diff > firstCount * 0.1) {
+                        trending = 'up';
+                    } else if (firstCount > 5 && diff < -firstCount * 0.1) {
+                        trending = 'down';
+                    }
+            
+                    return {
+                        name: cause.name,
+                        riskScore: Math.min(0.95, cause.tickets / totalTickets * 2.5),
+                        trending: trending,
+                    };
+                });
+                resolve(hotspots);
+            } else if (isModelTrained) {
+                // Fallback for smaller datasets
                 const sortedCauses = [...trainedRootCauses].sort((a,b) => b.tickets - a.tickets);
                 const totalTickets = sortedCauses.reduce((sum, cause) => sum + cause.tickets, 1);
                 resolve(sortedCauses.slice(0, 3).map(cause => ({
                     name: cause.name,
                     riskScore: Math.min(0.95, cause.tickets / totalTickets * 2.5),
-                    trending: 'up',
+                    trending: 'stable', // Can't determine trend with small data
                 })));
             } else {
                 resolve([
@@ -653,12 +842,34 @@ export const getPredictiveHotspots = (): Promise<PredictiveHotspot[]> => {
 export const getSlaBreachTickets = (): Promise<SlaBreachTicket[]> => {
     return new Promise(resolve => {
         setTimeout(() => {
-            resolve([
-                { ticket_no: 'T-CRIT-001', priority: 'Critical', timeToBreach: '15m' },
-                { ticket_no: 'T-HIGH-045', priority: 'High', timeToBreach: '35m' },
-                { ticket_no: 'T-HIGH-048', priority: 'High', timeToBreach: '55m' },
-                { ticket_no: 'T-CRIT-002', priority: 'Critical', timeToBreach: '1h 10m' },
-            ]);
+            if (isModelTrained) {
+                const highPriorityTickets = uploadedTickets.filter(
+                    t => t.priority === 'High' || t.priority === 'Critical'
+                );
+                
+                // Shuffle and pick a few
+                const shuffled = highPriorityTickets.sort(() => 0.5 - Math.random());
+                const selectedTickets = shuffled.slice(0, 5);
+                
+                const breachTimes = ['15m', '25m', '35m', '45m', '55m', '1h 10m', '1h 30m'];
+                
+                const slaTickets: SlaBreachTicket[] = selectedTickets.map(ticket => ({
+                    ticket_no: ticket.ticket_no,
+                    priority: ticket.priority as 'High' | 'Critical',
+                    timeToBreach: breachTimes[Math.floor(Math.random() * breachTimes.length)],
+                }));
+                
+                resolve(slaTickets);
+            
+            } else {
+                // Fallback to original mock
+                resolve([
+                    { ticket_no: 'T-CRIT-001', priority: 'Critical', timeToBreach: '15m' },
+                    { ticket_no: 'T-HIGH-045', priority: 'High', timeToBreach: '35m' },
+                    { ticket_no: 'T-HIGH-048', priority: 'High', timeToBreach: '55m' },
+                    { ticket_no: 'T-CRIT-002', priority: 'Critical', timeToBreach: '1h 10m' },
+                ]);
+            }
         }, 950);
     });
 };
@@ -668,28 +879,38 @@ export const getTicketVolumeForecast = (): Promise<TicketVolumeForecastDataPoint
         setTimeout(() => {
             const data: TicketVolumeForecastDataPoint[] = [];
             const today = new Date();
-            const baseVolume = isModelTrained ? 120 : 180;
-            
+            let baseVolume = 180; // default mock
+
+            if (isModelTrained && uploadedTickets.length > 0) {
+                // Assume the dataset represents roughly 30 days of tickets for a daily average
+                const dailyAverage = Math.ceil(uploadedTickets.length / 30);
+                baseVolume = Math.max(20, dailyAverage); // Ensure base volume is not too low
+            }
+
+            // Generate 4 past days of "actual" data
             for (let i = 4; i > 0; i--) {
                 const date = new Date(today);
                 date.setDate(today.getDate() - i);
                 data.push({
                     day: date.toLocaleString('en-US', { weekday: 'short' }),
-                    actual: Math.floor(Math.random() * 50) + baseVolume,
+                    actual: Math.floor(Math.random() * (baseVolume * 0.4) - (baseVolume * 0.2) + baseVolume), // +/- 20% randomness
                 });
             }
 
-            const todayActual = Math.floor(Math.random() * 50) + baseVolume + 10;
+            // Today's data
+            const todayActual = Math.floor(Math.random() * (baseVolume * 0.4) - (baseVolume * 0.2) + baseVolume);
             data.push({ day: 'Today', actual: todayActual, forecast: todayActual });
 
+            // Forecast for the next 6 days
             let lastForecast = todayActual;
             for (let i = 1; i <= 6; i++) {
                 const date = new Date(today);
                 date.setDate(today.getDate() + i);
-                lastForecast = lastForecast + (Math.random() * 20 - 10);
+                // Simulate some trend and randomness
+                lastForecast = lastForecast + (Math.random() * (baseVolume * 0.1) - (baseVolume * 0.05));
                 data.push({
                     day: date.toLocaleString('en-US', { weekday: 'short' }),
-                    forecast: Math.max(baseVolume - 30, Math.floor(lastForecast)),
+                    forecast: Math.max(Math.floor(baseVolume * 0.7), Math.floor(lastForecast)), // ensure forecast doesn't drop too low
                 });
             }
             

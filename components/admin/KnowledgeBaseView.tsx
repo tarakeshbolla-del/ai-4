@@ -156,7 +156,7 @@ const KnowledgeBaseView: React.FC = () => {
     const getStatusMessage = () => {
         switch (trainingStatus) {
             case 'in_progress':
-                return { text: 'Training in Progress... Dashboards will update upon completion.', color: 'text-yellow-500', pulse: true };
+                return { text: 'Training in Progress... Building search index and evaluating model. This may take a moment.', color: 'text-yellow-500', pulse: true };
             case 'completed':
                 return { text: '✅ Training Complete. See the performance report below.', color: 'text-green-500', pulse: false };
             case 'failed':
@@ -257,8 +257,7 @@ const KnowledgeBaseView: React.FC = () => {
                         <h3 className="text-xl font-semibold mb-4 border-b pb-2">Exploratory Data Analysis Report</h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-700 dark:text-gray-300">
                             <p><strong>File Name:</strong> <span className="font-mono">{edaReport.fileName}</span></p>
-                            {/* Fix: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type. */}
-                            {/* FIX: Explicitly cast fileSize to Number to prevent type error during division. */}
+                            {/* FIX: Explicitly cast `edaReport.fileSize` to a Number to resolve a TypeScript error where it was not being recognized as a numeric type for an arithmetic operation. */}
                             <p><strong>File Size:</strong> <span className="font-mono">{(Number(edaReport.fileSize) / 1024).toFixed(2)} KB</span></p>
                             <p><strong>Valid Rows:</strong> <span className="font-mono">{edaReport.rowCount.toLocaleString()}</span></p>
                         </div>

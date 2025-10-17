@@ -205,3 +205,81 @@ export async function getNormalizedMappings(
     return {};
   }
 }
+
+
+/**
+ * Uses Gemini to generate relevant keywords from ticket descriptions, filtering out PII.
+ */
+export async function generateKeywords(ticketDescriptions: string[], category: string): Promise<{ word: string; value: number }[]> {
+  const prompt = `
+        Analyze the following IT support ticket descriptions for the category "${category}".
+        Identify up to 30 of the most common and relevant technical keywords or short phrases (1-3 words).
+
+        Ticket Descriptions Sample:
+        ${ticketDescriptions.map(d => `- ${d}`).join('\n')}
+    `;
+
+    const systemInstruction = `
+        You are an expert at analyzing IT support tickets. Your task is to extract relevant technical keywords.
+        Follow these instructions precisely:
+        1. Focus on technical terms, software names, hardware models, error codes, and action verbs related to the technical problem.
+        2. EXPLICITLY IGNORE AND FILTER OUT all personal names (e.g., John, Jane Doe), contact information (emails, phone numbers), usernames, company names, and any other personally identifiable information (PII).
+        3. Also, ignore generic stop words (e.g., 'the', 'is', 'a', 'issue', 'problem', 'error', 'working').
+        4. Consolidate synonyms and different forms of a word (e.g., "connecting", "connection" should be consolidated into "connection").
+        5. The final output must be a JSON array of objects. Each object must have a "word" (string) and "value" (a number representing its frequency or importance) key.
+        6. The list MUST be sorted by value in descending order.
+        7. Only return the JSON array, with no other text, markdown formatting, or explanation.
+    `;
+
+  const responseSchema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        word: { type: Type.STRING, description: 'The extracted keyword or phrase.' },
+        value: { type: Type.INTEGER, description: 'The calculated frequency or importance score.' },
+      },
+      required: ['word', 'value'],
+    },
+  };
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        systemInstruction,
+        responseMimeType: 'application/json',
+        responseSchema: responseSchema,
+      },
+    });
+
+    const jsonString = response.text.trim();
+    const keywords = JSON.parse(jsonString);
+    if (Array.isArray(keywords)) {
+        return keywords.slice(0, 30);
+    }
+  } catch (error) {
+    console.error('Error calling Gemini API for keyword generation:', error);
+    // Fall through to fallback
+  }
+
+  // Fallback to simple text parsing if API fails or returns invalid format
+  const stopWords = new Set([
+    'a', 'about', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'was', 'what', 'when', 'where', 'who', 'will', 'with', 'the', 'my', 'issue', 'problem', 'error', 'not', 'working', 'cannot', 'unable', 'access'
+  ]);
+
+  const words = ticketDescriptions
+    .flatMap(d => d.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/))
+    .filter(word => word.length > 3 && !/^\d+$/.test(word) && !stopWords.has(word));
+
+  const wordCounts = words.reduce((acc, word) => {
+    acc[word] = (acc[word] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  return Object.entries(wordCounts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 30)
+    .map(([word, value]) => ({ word, value }));
+}
