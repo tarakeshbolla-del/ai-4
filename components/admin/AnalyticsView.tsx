@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getProblemClusterData, getUserFrustrationData, getPredictiveHotspots, getSlaBreachTickets, getTicketVolumeForecast } from '../../services/api';
@@ -147,20 +148,30 @@ const AnalyticsView: React.FC = () => {
                         )}
                     </div>
                  </div>
-                 <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 h-72 relative overflow-hidden">
+                 <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 h-72 flex flex-col">
                     <h3 className="text-lg font-semibold mb-2">SLA Breach Risk Ticker</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Tickets nearing SLA breach.</p>
-                    {isSlaTicketsLoading ? <div className="h-24 flex items-center justify-center"><LoadingSpinner /></div> : (
-                        <div className="absolute w-full top-24 pr-6">
-                            <ul className="motion-safe:animate-ticker space-y-2">
-                                {slaTickets.concat(slaTickets).map((ticket, index) => (
-                                    <li key={`${ticket.ticket_no}-${index}`} className="flex justify-between items-center text-sm p-2 bg-gray-50 dark:bg-gray-700/50 rounded-md">
-                                        <span className="font-mono text-xs">{ticket.ticket_no}</span>
-                                        <span className={`font-semibold text-xs ${ticket.priority === 'Critical' ? 'text-red-500' : 'text-yellow-500'}`}>{ticket.priority}</span>
-                                        <span className="text-xs">Breach in <span className="font-bold">{ticket.timeToBreach}</span></span>
-                                    </li>
-                                ))}
-                            </ul>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Tickets nearing SLA breach.</p>
+                    {isSlaTicketsLoading ? (
+                        <div className="flex-grow flex items-center justify-center">
+                            <LoadingSpinner />
+                        </div>
+                    ) : (
+                        <div className="flex-grow overflow-y-auto mt-2 -mr-4 pr-4">
+                            {slaTickets.length > 0 ? (
+                                <ul className="space-y-2">
+                                    {slaTickets.map((ticket, index) => (
+                                        <li key={`${ticket.ticket_no}-${index}`} className="flex justify-between items-center text-sm p-2 bg-gray-50 dark:bg-gray-700/50 rounded-md">
+                                            <span className="font-mono text-xs">{ticket.ticket_no}</span>
+                                            <span className={`font-semibold text-xs ${ticket.priority === 'Critical' ? 'text-red-500' : 'text-yellow-500'}`}>{ticket.priority}</span>
+                                            <span className="text-xs">Breach in <span className="font-bold">{ticket.timeToBreach}</span></span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <div className="h-full flex items-center justify-center">
+                                    <p className="text-gray-500 dark:text-gray-400">No tickets are currently at risk.</p>
+                                </div>
+                            )}
                         </div>
                     )}
                  </div>
