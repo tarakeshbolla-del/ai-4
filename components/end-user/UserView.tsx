@@ -14,6 +14,9 @@ const UserView: React.FC = () => {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResultData | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const navigate = useNavigate();
+  
+  // State to track the user's feedback choice on the analysis result.
+  const [feedbackGiven, setFeedbackGiven] = useState<'positive' | 'negative' | null>(null);
 
   // State for the submission form is lifted up to preserve it
   const [description, setDescription] = useState('');
@@ -37,10 +40,11 @@ const UserView: React.FC = () => {
 
   const handleFeedback = useCallback(async (feedback: 'positive' | 'negative') => {
     await submitFeedback(feedback);
-    const message = feedback === 'positive'
-      ? 'Great! We are glad we could help.'
-      : 'Thank you. A support ticket has been created.';
-    setFeedbackMessage(message);
+    setFeedbackGiven(feedback);
+  }, []);
+
+  const handleCreateTicket = useCallback(() => {
+    setFeedbackMessage('Thank you. A support ticket has been created.');
     setViewState('confirmation');
   }, []);
   
@@ -60,6 +64,7 @@ const UserView: React.FC = () => {
     setViewState('form');
     setAnalysisResult(null);
     setFeedbackMessage('');
+    setFeedbackGiven(null);
     // Clear form state for a fresh start
     setDescription('');
     setCategory('');
@@ -69,6 +74,7 @@ const UserView: React.FC = () => {
 
   const handleBackToForm = useCallback(() => {
     setViewState('form');
+    setFeedbackGiven(null);
   }, []);
   
   const renderContent = () => {
@@ -84,7 +90,14 @@ const UserView: React.FC = () => {
         );
       case 'result':
         return analysisResult && (
-          <AnalysisResult result={analysisResult} onFeedback={handleFeedback} onBack={handleBackToForm} />
+          <AnalysisResult 
+            result={analysisResult} 
+            onFeedback={handleFeedback} 
+            onBack={handleBackToForm}
+            feedbackGiven={feedbackGiven}
+            onCreateTicket={handleCreateTicket}
+            onReset={resetView}
+          />
         );
       case 'confirmation':
         return (

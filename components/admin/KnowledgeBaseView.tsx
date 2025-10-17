@@ -25,13 +25,25 @@ const KnowledgeBaseView: React.FC = () => {
     const [isMapping, setIsMapping] = useState(false);
     const [mappingData, setMappingData] = useState<{ headers: string[], mapping: CsvHeaderMapping, rowCount: number } | null>(null);
     const [currentMapping, setCurrentMapping] = useState<CsvHeaderMapping | null>(null);
+    const [currentStep, setCurrentStep] = useState(1);
 
-    // New state for the data cleaning step
+    // State for the data cleaning steps
     const [categoryMappingOverrides, setCategoryMappingOverrides] = useState<Record<string, string> | null>(null);
     const [rawCategoryCounts, setRawCategoryCounts] = useState<Record<string, number> | null>(null);
+    const [priorityMappingOverrides, setPriorityMappingOverrides] = useState<Record<string, string> | null>(null);
+    const [rawPriorityCounts, setRawPriorityCounts] = useState<Record<string, number> | null>(null);
+    
     const [isPreparing, setIsPreparing] = useState(false);
     const [isDataPrepared, setIsDataPrepared] = useState(false);
     const [accuracyReport, setAccuracyReport] = useState<ModelAccuracyReport | null>(null);
+
+    // State for category merging
+    const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+    const [mergeValue, setMergeValue] = useState('');
+    
+    // State for priority merging
+    const [selectedPriorities, setSelectedPriorities] = useState<Set<string>>(new Set());
+    const [priorityMergeValue, setPriorityMergeValue] = useState('');
 
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,8 +57,15 @@ const KnowledgeBaseView: React.FC = () => {
             setTrainingStatus('idle');
             setCategoryMappingOverrides(null);
             setRawCategoryCounts(null);
+            setPriorityMappingOverrides(null);
+            setRawPriorityCounts(null);
             setIsDataPrepared(false);
             setAccuracyReport(null);
+            setSelectedCategories(new Set());
+            setMergeValue('');
+            setSelectedPriorities(new Set());
+            setPriorityMergeValue('');
+            setCurrentStep(1);
         }
     };
 
@@ -56,17 +75,17 @@ const KnowledgeBaseView: React.FC = () => {
         setEdaReport(null);
         setUploadError(null);
         setMappingData(null);
-        setCategoryMappingOverrides(null);
-        setIsDataPrepared(false);
-        setAccuracyReport(null);
-
+        setCurrentStep(1); // Stay on step 1 but show loading
+        
         try {
             const result = await proposeCsvMapping(file);
             setMappingData(result);
             setCurrentMapping(result.mapping);
+            setCurrentStep(2);
         } catch (error: any) {
             console.error("Mapping proposal failed", error);
             setUploadError(error.message || "Failed to read CSV file. Please check its format.");
+            setCurrentStep(1); // Go back to step 1 on error
         } finally {
             setIsMapping(false);
         }
@@ -79,15 +98,19 @@ const KnowledgeBaseView: React.FC = () => {
         setEdaReport(null);
         setUploadError(null);
         try {
-            const { report, categoryMapping, rawCategoryCounts } = await uploadKnowledgeBase(file, currentMapping);
+            const { report, categoryMapping, rawCategoryCounts, priorityMapping, rawPriorityCounts } = await uploadKnowledgeBase(file, currentMapping);
             setEdaReport(report);
             setCategoryMappingOverrides(categoryMapping);
             setRawCategoryCounts(rawCategoryCounts);
+            setPriorityMappingOverrides(priorityMapping);
+            setRawPriorityCounts(rawPriorityCounts);
             setMappingData(null); // Hide mapping UI after success
             setCurrentMapping(null);
+            setCurrentStep(3);
         } catch (error: any) {
             console.error("Upload failed", error);
             setUploadError(error.message || "Failed to parse CSV with the provided mapping.");
+            setCurrentStep(2); // Go back to mapping step
         } finally {
             setIsUploading(false);
         }
@@ -109,14 +132,25 @@ const KnowledgeBaseView: React.FC = () => {
         });
     };
 
+     const handlePriorityOverrideChange = (rawPriority: string, newNormalizedValue: string) => {
+        if (!priorityMappingOverrides) return;
+        setPriorityMappingOverrides({
+            ...priorityMappingOverrides,
+            [rawPriority]: newNormalizedValue,
+        });
+    };
+    
+    const handleProceedToPriorityCleaning = () => {
+        setCurrentStep(4);
+    };
+
     const handleApplyCleaning = async () => {
-        if (!categoryMappingOverrides) return;
+        if (!categoryMappingOverrides || !priorityMappingOverrides) return;
         setIsPreparing(true);
         try {
-            await finalizeTicketData(categoryMappingOverrides);
+            await finalizeTicketData(categoryMappingOverrides, priorityMappingOverrides);
             setIsDataPrepared(true);
-            setCategoryMappingOverrides(null); // Hide the cleaning UI
-            setRawCategoryCounts(null);
+            setCurrentStep(5);
         } catch (error) {
             console.error("Failed to apply cleaning", error);
             setUploadError("An error occurred during data preparation.");
@@ -136,6 +170,68 @@ const KnowledgeBaseView: React.FC = () => {
             setTrainingStatus('failed');
         }
     };
+
+    // --- MERGE FUNCTIONALITY ---
+    const handleSelectCategory = (rawCategory: string, isSelected: boolean) => {
+        const newSelection = new Set(selectedCategories);
+        if (isSelected) {
+            newSelection.add(rawCategory);
+        } else {
+            newSelection.delete(rawCategory);
+        }
+        setSelectedCategories(newSelection);
+    };
+
+    const handleSelectAllCategories = (isSelected: boolean) => {
+        if (isSelected && rawCategoryCounts) {
+            setSelectedCategories(new Set(Object.keys(rawCategoryCounts)));
+        } else {
+            setSelectedCategories(new Set());
+        }
+    };
+
+    const handleMergeCategories = () => {
+        if (mergeValue.trim() && selectedCategories.size > 0 && categoryMappingOverrides) {
+            const newOverrides = { ...categoryMappingOverrides };
+            selectedCategories.forEach(cat => {
+                newOverrides[cat] = mergeValue.trim();
+            });
+            setCategoryMappingOverrides(newOverrides);
+            setSelectedCategories(new Set());
+            setMergeValue('');
+        }
+    };
+    
+     const handleSelectPriority = (rawPriority: string, isSelected: boolean) => {
+        const newSelection = new Set(selectedPriorities);
+        if (isSelected) {
+            newSelection.add(rawPriority);
+        } else {
+            newSelection.delete(rawPriority);
+        }
+        setSelectedPriorities(newSelection);
+    };
+
+    const handleSelectAllPriorities = (isSelected: boolean) => {
+        if (isSelected && rawPriorityCounts) {
+            setSelectedPriorities(new Set(Object.keys(rawPriorityCounts)));
+        } else {
+            setSelectedPriorities(new Set());
+        }
+    };
+
+    const handleMergePriorities = () => {
+        if (priorityMergeValue.trim() && selectedPriorities.size > 0 && priorityMappingOverrides) {
+            const newOverrides = { ...priorityMappingOverrides };
+            selectedPriorities.forEach(pri => {
+                newOverrides[pri] = priorityMergeValue.trim();
+            });
+            setPriorityMappingOverrides(newOverrides);
+            setSelectedPriorities(new Set());
+            setPriorityMergeValue('');
+        }
+    };
+    // --- END MERGE FUNCTIONALITY ---
 
     const pollStatus = useCallback(async () => {
         if (trainingStatus === 'in_progress') {
@@ -183,21 +279,21 @@ const KnowledgeBaseView: React.FC = () => {
                     </button>
                     <span className="text-gray-500 dark:text-gray-400">{file ? file.name : 'No file chosen'}</span>
                 </div>
-                 {uploadError && !mappingData && (
+                 {uploadError && currentStep < 3 && (
                     <p className="mt-4 text-sm text-red-600 dark:text-red-400">{uploadError}</p>
                 )}
                 <button
                     onClick={handleProposeMapping}
-                    disabled={!file || isMapping || isUploading}
+                    disabled={!file || isMapping || isUploading || currentStep > 1}
                     className="mt-4 px-6 py-2 bg-light-accent text-white font-bold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {isMapping ? 'Analyzing Headers...' : 'Upload & Map Headers'}
                 </button>
             </div>
 
-            {isMapping && <div className="flex justify-center"><LoadingSpinner /></div>}
+            {(isMapping || (isUploading && currentStep === 2)) && <div className="flex justify-center"><LoadingSpinner /></div>}
             
-            {mappingData && currentMapping && (
+            {currentStep === 2 && mappingData && currentMapping && (
                 <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 space-y-6">
                     <h3 className="text-xl font-semibold">Step 2: Confirm Column Mapping</h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -226,7 +322,7 @@ const KnowledgeBaseView: React.FC = () => {
                     </div>
                      <div className="flex items-center justify-end space-x-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                         <button 
-                            onClick={() => { setMappingData(null); setCurrentMapping(null); }}
+                            onClick={() => { setMappingData(null); setCurrentMapping(null); setCurrentStep(1); }}
                             className="px-4 py-2 border rounded-md text-sm"
                         >
                             Cancel
@@ -243,21 +339,20 @@ const KnowledgeBaseView: React.FC = () => {
             )}
 
 
-            {isUploading && !edaReport && <div className="flex justify-center"><LoadingSpinner /></div>}
-            {uploadError && edaReport === null && !mappingData && (
+            {isUploading && currentStep > 2 && <div className="flex justify-center"><LoadingSpinner /></div>}
+            {uploadError && currentStep > 2 && (
                  <div className="bg-red-100 dark:bg-red-900/30 border border-red-400 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg relative" role="alert">
-                    <strong className="font-bold">Upload Failed: </strong>
+                    <strong className="font-bold">Process Failed: </strong>
                     <span className="block sm:inline">{uploadError}</span>
                 </div>
             )}
 
-            {edaReport && (
+            {currentStep >= 3 && edaReport && (
                  <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 space-y-8">
                     <div>
                         <h3 className="text-xl font-semibold mb-4 border-b pb-2">Exploratory Data Analysis Report</h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-700 dark:text-gray-300">
                             <p><strong>File Name:</strong> <span className="font-mono">{edaReport.fileName}</span></p>
-                            {/* FIX: Explicitly cast `edaReport.fileSize` to a Number to resolve a TypeScript error where it was not being recognized as a numeric type for an arithmetic operation. */}
                             <p><strong>File Size:</strong> <span className="font-mono">{(Number(edaReport.fileSize) / 1024).toFixed(2)} KB</span></p>
                             <p><strong>Valid Rows:</strong> <span className="font-mono">{edaReport.rowCount.toLocaleString()}</span></p>
                         </div>
@@ -327,24 +422,61 @@ const KnowledgeBaseView: React.FC = () => {
                 </div>
             )}
 
-            {categoryMappingOverrides && rawCategoryCounts && (
+            {currentStep === 3 && categoryMappingOverrides && rawCategoryCounts && (
                 <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 space-y-6">
                     <h3 className="text-xl font-semibold">Step 3: Clean & Normalize Categories</h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Review the AI-powered normalization of ticket categories. You can rename or merge categories by editing the "Normalized Value" field. This ensures data consistency before training.
+                        Review the AI-powered normalization of ticket categories. You can rename or merge categories by editing the "Normalized Value" field, or by selecting multiple rows to merge.
                     </p>
+                    
+                    {selectedCategories.size > 0 && (
+                        <div className="p-4 bg-gray-100 dark:bg-gray-700/50 rounded-lg flex items-center gap-4">
+                            <span className="font-semibold text-sm">{selectedCategories.size} categor{selectedCategories.size > 1 ? 'ies' : 'y'} selected.</span>
+                            <input
+                                type="text"
+                                value={mergeValue}
+                                onChange={(e) => setMergeValue(e.target.value)}
+                                placeholder="Enter new normalized value to merge..."
+                                className="flex-grow p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent text-sm"
+                            />
+                            <button
+                                onClick={handleMergeCategories}
+                                disabled={!mergeValue.trim()}
+                                className="px-4 py-2 bg-sky-600 text-white font-bold rounded-lg hover:bg-sky-700 transition-colors disabled:opacity-50 text-sm"
+                            >
+                                Merge Selected
+                            </button>
+                        </div>
+                    )}
+
                     <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg max-h-96">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 text-xs uppercase sticky top-0">
                                 <tr>
+                                    <th scope="col" className="px-4 py-3">
+                                        <input
+                                            type="checkbox"
+                                            onChange={(e) => handleSelectAllCategories(e.target.checked)}
+                                            checked={rawCategoryCounts !== null && selectedCategories.size > 0 && selectedCategories.size === Object.keys(rawCategoryCounts).length}
+                                            className="w-4 h-4 rounded text-light-accent dark:text-dark-accent bg-gray-100 dark:bg-gray-600 border-gray-300 dark:border-gray-500 focus:ring-light-accent dark:focus:ring-dark-accent"
+                                        />
+                                    </th>
                                     <th scope="col" className="px-4 py-3 font-semibold tracking-wider">Raw Category from CSV</th>
                                     <th scope="col" className="px-4 py-3 font-semibold tracking-wider text-right">Ticket Count</th>
                                     <th scope="col" className="px-4 py-3 font-semibold tracking-wider">Normalized Value (Editable)</th>
                                 </tr>
                             </thead>
                             <tbody className="text-gray-700 dark:text-gray-300">
-                                {Object.entries(rawCategoryCounts).sort(([, a], [, b]) => b - a).map(([rawCategory, count]) => (
+                                {Object.entries(rawCategoryCounts).sort(([, a], [, b]) => Number(b) - Number(a)).map(([rawCategory, count]) => (
                                     <tr key={rawCategory} className="bg-white dark:bg-gray-800/60 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/80">
+                                        <td className="px-4 py-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedCategories.has(rawCategory)}
+                                                onChange={(e) => handleSelectCategory(rawCategory, e.target.checked)}
+                                                className="w-4 h-4 rounded text-light-accent dark:text-dark-accent bg-gray-100 dark:bg-gray-600 border-gray-300 dark:border-gray-500 focus:ring-light-accent dark:focus:ring-dark-accent"
+                                            />
+                                        </td>
                                         <td className="px-4 py-2 font-mono text-xs">{rawCategory}</td>
                                         <td className="px-4 py-2 text-right">{count.toLocaleString()}</td>
                                         <td className="px-4 py-2">
@@ -362,6 +494,93 @@ const KnowledgeBaseView: React.FC = () => {
                     </div>
                     <div className="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-700">
                         <button
+                            onClick={handleProceedToPriorityCleaning}
+                            className="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                        >
+                            Next: Clean Priorities →
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {currentStep === 4 && priorityMappingOverrides && rawPriorityCounts && (
+                <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 space-y-6">
+                    <h3 className="text-xl font-semibold">Step 4: Clean & Normalize Priorities</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Review and adjust the AI-powered normalization for ticket priorities.
+                    </p>
+                    
+                    {selectedPriorities.size > 0 && (
+                        <div className="p-4 bg-gray-100 dark:bg-gray-700/50 rounded-lg flex items-center gap-4">
+                            <span className="font-semibold text-sm">{selectedPriorities.size} priorit{selectedPriorities.size > 1 ? 'ies' : 'y'} selected.</span>
+                            <input
+                                type="text"
+                                value={priorityMergeValue}
+                                onChange={(e) => setPriorityMergeValue(e.target.value)}
+                                placeholder="Enter new normalized value to merge..."
+                                className="flex-grow p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent text-sm"
+                            />
+                            <button
+                                onClick={handleMergePriorities}
+                                disabled={!priorityMergeValue.trim()}
+                                className="px-4 py-2 bg-sky-600 text-white font-bold rounded-lg hover:bg-sky-700 transition-colors disabled:opacity-50 text-sm"
+                            >
+                                Merge Selected
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg max-h-96">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 text-xs uppercase sticky top-0">
+                                <tr>
+                                    <th scope="col" className="px-4 py-3">
+                                        <input
+                                            type="checkbox"
+                                            onChange={(e) => handleSelectAllPriorities(e.target.checked)}
+                                            checked={rawPriorityCounts !== null && selectedPriorities.size > 0 && selectedPriorities.size === Object.keys(rawPriorityCounts).length}
+                                            className="w-4 h-4 rounded text-light-accent dark:text-dark-accent bg-gray-100 dark:bg-gray-600 border-gray-300 dark:border-gray-500 focus:ring-light-accent dark:focus:ring-dark-accent"
+                                        />
+                                    </th>
+                                    <th scope="col" className="px-4 py-3 font-semibold tracking-wider">Raw Priority from CSV</th>
+                                    <th scope="col" className="px-4 py-3 font-semibold tracking-wider text-right">Ticket Count</th>
+                                    <th scope="col" className="px-4 py-3 font-semibold tracking-wider">Normalized Value (Editable)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-gray-700 dark:text-gray-300">
+                                {Object.entries(rawPriorityCounts).sort(([, a], [, b]) => Number(b) - Number(a)).map(([rawPriority, count]) => (
+                                    <tr key={rawPriority} className="bg-white dark:bg-gray-800/60 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/80">
+                                        <td className="px-4 py-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedPriorities.has(rawPriority)}
+                                                onChange={(e) => handleSelectPriority(rawPriority, e.target.checked)}
+                                                className="w-4 h-4 rounded text-light-accent dark:text-dark-accent bg-gray-100 dark:bg-gray-600 border-gray-300 dark:border-gray-500 focus:ring-light-accent dark:focus:ring-dark-accent"
+                                            />
+                                        </td>
+                                        <td className="px-4 py-2 font-mono text-xs">{rawPriority}</td>
+                                        <td className="px-4 py-2 text-right">{count.toLocaleString()}</td>
+                                        <td className="px-4 py-2">
+                                            <input 
+                                                type="text"
+                                                value={priorityMappingOverrides[rawPriority] || ''}
+                                                onChange={(e) => handlePriorityOverrideChange(rawPriority, e.target.value)}
+                                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent"
+                                            />
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-700">
+                         <button
+                            onClick={() => setCurrentStep(3)}
+                            className="px-4 py-2 border rounded-md text-sm"
+                        >
+                           ← Back to Categories
+                        </button>
+                        <button
                             onClick={handleApplyCleaning}
                             disabled={isPreparing}
                             className="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
@@ -372,9 +591,9 @@ const KnowledgeBaseView: React.FC = () => {
                 </div>
             )}
             
-            {edaReport && (
+            {currentStep >= 5 && edaReport && (
                 <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
-                    <h3 className="text-lg font-semibold mb-2">Step 4: On-Demand Model Training</h3>
+                    <h3 className="text-lg font-semibold mb-2">Step 5: On-Demand Model Training</h3>
                     <p className={`text-sm mb-4 ${statusInfo.color} ${statusInfo.pulse ? 'animate-pulse' : ''}`}>{statusInfo.text}</p>
                         <button
                         onClick={handleStartTraining}
@@ -386,7 +605,7 @@ const KnowledgeBaseView: React.FC = () => {
                 </div>
             )}
 
-            {accuracyReport && (
+            {currentStep === 5 && accuracyReport && (
                 <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
                     <h3 className="text-xl font-semibold mb-1">Model Performance Report</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Based on an automated 80/20 train/test split of your data.</p>

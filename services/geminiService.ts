@@ -153,19 +153,19 @@ export async function getNormalizedMappings(
 
   const prompt = `
     You are an expert data cleaner for an IT support ticketing system.
-    Your task is to normalize a list of raw, messy values for the "${fieldName}" field.
+    Your task is to normalize a list of raw, messy values for the "${fieldName}" field by mapping them to a standard schema.
 
-    Existing Standard Values: ${JSON.stringify(standardValues)}
+    **Target Schema (Standard Values):** ${JSON.stringify(standardValues)}
+    *This is the preferred list of values. You should map to these whenever possible.*
 
-    Raw Values to Normalize: ${JSON.stringify(rawValues)}
+    **Raw Input Values to Normalize:** ${JSON.stringify(rawValues)}
 
-    Instructions:
-    1. For each raw value, determine if it's a synonym, misspelling, or a more specific version of one of the "Existing Standard Values".
-    2. If it is, map it to the corresponding standard value. (e.g., "software access" -> "Software", "P1" -> "Critical").
-    3. If a raw value represents a legitimate, distinct new category that is not on the list (e.g., "Mobile Support"), then normalize its capitalization and use it as the new value (e.g., "mobile support" -> "Mobile Support").
-    4. If a raw value is vague, irrelevant, or doesn't fit, map it to "${defaultValue}".
-    5. Your response MUST be a JSON array of objects, where each object has two keys: "rawValue" and "normalizedValue".
-    6. Ensure every raw value from the input list is included in the response.
+    **Instructions (follow in this order of priority):**
+    1.  **Map to Target Schema:** For each raw value, your primary goal is to map it to one of the "Target Schema" values. This includes handling synonyms (e.g., "VPN issues" -> "Network"), misspellings (e.g., "Hardwear" -> "Hardware"), or more specific versions (e.g., "Password Reset" -> "Account Management"). Be aggressive in matching to the existing schema.
+    2.  **Create New Values (Only if Necessary):** If a raw value represents a legitimate, distinct concept that absolutely cannot fit into the existing "Target Schema" (e.g., a completely new product line like "Mobile App Support"), normalize its capitalization (e.g., "mobile app support" -> "Mobile App Support") and use that as the new value. Do this sparingly.
+    3.  **Use Default for Vague/Irrelevant Data:** If a raw value is too vague, irrelevant (e.g., "N/A", "See description"), or nonsensical, map it to the default value: "${defaultValue}".
+    4.  **Format:** Your response MUST be a JSON array of objects, where each object has two keys: "rawValue" and "normalizedValue".
+    5.  **Completeness:** Ensure every single raw value from the input list is included exactly once in the response.
     `;
 
   const responseSchema = {
@@ -220,15 +220,18 @@ export async function generateKeywords(ticketDescriptions: string[], category: s
     `;
 
     const systemInstruction = `
-        You are an expert at analyzing IT support tickets. Your task is to extract relevant technical keywords.
-        Follow these instructions precisely:
-        1. Focus on technical terms, software names, hardware models, error codes, and action verbs related to the technical problem.
-        2. EXPLICITLY IGNORE AND FILTER OUT all personal names (e.g., John, Jane Doe), contact information (emails, phone numbers), usernames, company names, and any other personally identifiable information (PII).
-        3. Also, ignore generic stop words (e.g., 'the', 'is', 'a', 'issue', 'problem', 'error', 'working').
-        4. Consolidate synonyms and different forms of a word (e.g., "connecting", "connection" should be consolidated into "connection").
-        5. The final output must be a JSON array of objects. Each object must have a "word" (string) and "value" (a number representing its frequency or importance) key.
-        6. The list MUST be sorted by value in descending order.
-        7. Only return the JSON array, with no other text, markdown formatting, or explanation.
+        You are an expert data analyst specializing in IT support tickets. Your primary goal is to extract purely technical keywords for a word cloud, which will be used by engineers to spot trends.
+        Follow these instructions with extreme precision:
+        1.  Focus exclusively on technical nouns, software names (e.g., 'Salesforce', 'VPN'), hardware models, specific error codes (e.g., 'Error 503'), and technical action phrases (e.g., 'data migration', 'permission denied').
+        2.  AGGRESSIVELY IGNORE AND FILTER OUT all non-technical terms. This includes:
+            -   All personally identifiable information (PII): names (John, Jane Doe), emails, phone numbers, usernames, company names.
+            -   Generic stop words: 'the', 'is', 'a', 'it', 'and', 'to', 'for'.
+            -   Common problem descriptions: 'issue', 'problem', 'error', 'not working', 'failed', 'unable'.
+            -   Words related to urgency or sentiment: 'urgent', 'ASAP', 'please', 'help', 'frustrated', 'important'.
+        3.  EFFECTIVELY CONSOLIDATE SYNONYMS and related concepts into a single, standardized technical term. For example, "can't connect," "connection failed," and "disconnecting" should be grouped under "Connection Issue." "Login failed" and "password error" should be grouped under "Authentication Error."
+        4.  The final output must be a JSON array of objects. Each object must have a "word" (string) and "value" (a number representing its frequency or importance) key.
+        5.  The list MUST be sorted by value in descending order.
+        6.  Return ONLY the JSON array. Do not include any other text, markdown formatting, or explanations.
     `;
 
   const responseSchema = {

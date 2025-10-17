@@ -6,10 +6,63 @@ interface AnalysisResultProps {
   result: AnalysisResultData;
   onFeedback: (feedback: 'positive' | 'negative') => void;
   onBack: () => void;
+  feedbackGiven: 'positive' | 'negative' | null;
+  onCreateTicket: () => void;
+  onReset: () => void;
 }
 
-const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onBack }) => {
+const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onBack, feedbackGiven, onCreateTicket, onReset }) => {
   const isFromSimilarIssue = result.fromSimilarIssue === true;
+
+  const renderFeedbackSection = () => {
+    if (feedbackGiven === 'positive') {
+      return (
+        <div className="text-center space-y-4 pt-6 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+          <p className="font-semibold text-green-700 dark:text-green-300">👍 Great! We're glad we could help.</p>
+          <button 
+              onClick={onReset}
+              className="px-6 py-2 bg-light-accent text-white font-bold rounded-lg hover:opacity-90 transition-opacity"
+          >
+            Create another ticket
+          </button>
+        </div>
+      );
+    }
+
+    if (feedbackGiven === 'negative') {
+      return (
+        <div className="text-center space-y-4 pt-6 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+          <p className="font-semibold text-amber-800 dark:text-amber-300">Thanks for the feedback. Would you like to create a support ticket?</p>
+          <button 
+              onClick={onCreateTicket}
+              className="px-6 py-2 bg-red-500 text-white font-bold rounded-lg hover:bg-red-600 transition-colors"
+          >
+            Yes, create a ticket
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="text-center space-y-4 pt-6">
+        <p className="font-semibold">Was this suggestion helpful?</p>
+        <div className="flex justify-center space-x-4">
+          <button 
+              onClick={() => onFeedback('positive')}
+              className="px-6 py-2 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 transition-colors"
+          >
+              👍 Yes
+          </button>
+          <button 
+              onClick={() => onFeedback('negative')}
+              className="px-6 py-2 bg-gray-500 text-white font-bold rounded-lg hover:bg-gray-600 transition-colors"
+          >
+              👎 No
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-8">
@@ -68,25 +121,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onB
                 ← Back to Form
             </button>
         </div>
-      ) : (
-        <div className="text-center space-y-4 pt-6">
-          <p className="font-semibold">Did this solve your problem?</p>
-          <div className="flex justify-center space-x-4">
-              <button 
-                  onClick={() => onFeedback('positive')}
-                  className="px-6 py-2 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 transition-colors"
-              >
-                  👍 Yes, this solved my problem!
-              </button>
-              <button 
-                  onClick={() => onFeedback('negative')}
-                  className="px-6 py-2 bg-red-500 text-white font-bold rounded-lg hover:bg-red-600 transition-colors"
-              >
-                  👎 This didn't help, create a support ticket
-              </button>
-          </div>
-        </div>
-      )}
+      ) : renderFeedbackSection()}
     </div>
   );
 };

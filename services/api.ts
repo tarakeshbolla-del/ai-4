@@ -36,6 +36,8 @@ let trainedWordCloudDataCache: Map<string, { word: string, value: number }[]> = 
 // New state for performance optimization
 type InvertedIndex = Map<string, number[]>; // Map<token, ticket_indices[]>
 let trainedInvertedIndex: InvertedIndex | null = null;
+// New state for advanced relevance scoring
+let trainedIdfMap: Map<string, number> | null = null;
 
 
 // Common words to ignore for better search accuracy
@@ -56,6 +58,16 @@ const STOP_WORDS = new Set([
   'yourselves', 'is', 'my', 'issue', 'problem', 'error', 'not', 'working', 'cannot', 'unable', 'to', 'access', 'the'
 ]);
 
+// Helper to tokenize text
+const tokenize = (text: string): string[] => {
+    return text
+        .toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .filter(word => word.length > 2 && !STOP_WORDS.has(word));
+};
+
+
 // Helper to convert File to base64
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -68,12 +80,7 @@ const fileToBase64 = (file: File): Promise<string> => {
 
 const filterSimilarTickets = (query: string, dataSource: SimilarTicket[] = []): SimilarTicket[] => {
     const searchData = dataSource.length > 0 ? dataSource : (isModelTrained ? trainedKnowledgeBase : mockSimilarTickets);
-    
-    const queryTokens = query
-        .toLowerCase()
-        .replace(/[^\w\s]/g, '')
-        .split(/\s+/)
-        .filter(word => word.length > 2 && !STOP_WORDS.has(word));
+    const queryTokens = tokenize(query);
 
     if (queryTokens.length === 0) return [];
     
@@ -88,21 +95,44 @@ const filterSimilarTickets = (query: string, dataSource: SimilarTicket[] = []): 
                 indices.forEach(index => candidateIndices.add(index));
             }
         });
-        // If we found candidates, filter the main list. Otherwise, search the full list.
         if (candidateIndices.size > 0 && candidateIndices.size < searchData.length) {
              candidateTickets = Array.from(candidateIndices).map(index => searchData[index]);
         }
     }
 
     const scoredTickets = candidateTickets.map(ticket => {
-        const ticketText = ` ${ticket.problem_description.toLowerCase().replace(/[^\w\s]/g, '')} `;
         let score = 0;
-        queryTokens.forEach(token => {
-            const regex = new RegExp(`\\s${token}\\s`, 'g');
-            const matches = ticketText.match(regex);
-            if (matches) score += matches.length * 15;
-            else if (ticketText.includes(token)) score += 5;
-        });
+        const ticketText = ` ${ticket.problem_description.toLowerCase().replace(/[^\w\s]/g, '')} `;
+
+        // --- SCORING LOGIC ---
+        if (isModelTrained && trainedIdfMap) {
+            // ADVANCED SCORING: TF-IDF with logarithmic TF scaling + Heuristics
+            const ticketTokens = tokenize(ticket.problem_description); // Use same tokenizer as training
+            
+            queryTokens.forEach(token => {
+                const tf = ticketTokens.filter(t => t === token).length;
+                if (tf > 0) {
+                    // Use logarithmic term frequency to dampen the effect of high-frequency words.
+                    const weightedTf = 1 + Math.log(tf);
+                    
+                    // Inverse Document Frequency (IDF): from pre-calculated map.
+                    // Add smoothing (add 1 to denominator) to handle rare words better.
+                    // Default to max IDF if a query token is new (very rare and important).
+                    const idf = trainedIdfMap!.get(token) || Math.log(1 + (trainedKnowledgeBase.length / 1));
+                    
+                    score += weightedTf * idf;
+                }
+            });
+        } else {
+            // SIMPLE SCORING: Heuristic-based
+            queryTokens.forEach(token => {
+                const regex = new RegExp(`\\s${token}\\s`, 'g');
+                if (ticketText.match(regex)) score += 15;
+                else if (ticketText.includes(token)) score += 5;
+            });
+        }
+        
+        // Phrase and Category Bonus (applies to both scoring models)
         for (let i = 0; i < queryTokens.length - 1; i++) {
             if (ticketText.includes(`${queryTokens[i]} ${queryTokens[i+1]}`)) score += 30;
         }
@@ -110,11 +140,12 @@ const filterSimilarTickets = (query: string, dataSource: SimilarTicket[] = []): 
         if (ticketCategory && queryTokens.some(token => ticketCategory.includes(token))) score += 40;
         const queryCategoryMatch = dynamicCategories.find(cat => query.toLowerCase().includes(cat.toLowerCase()));
         if(queryCategoryMatch && ticket.category?.toLowerCase() === queryCategoryMatch.toLowerCase()) score += 50;
+        
         return { ...ticket, similarity_score: score };
     });
 
     return scoredTickets
-        .filter(ticket => ticket.similarity_score > 10)
+        .filter(ticket => ticket.similarity_score > 0) // Changed from 10 to 0 to be more inclusive with TF-IDF
         .sort((a, b) => b.similarity_score - a.similarity_score);
 };
 
@@ -187,33 +218,47 @@ async function processTrainedData() {
         
         trainedKnowledgeBase = trainingSet;
 
-        // OPTIMIZATION: Build an inverted index for the training set to speed up evaluation.
+        // 2. Build Inverted Index and TF-IDF Models on the Training Set
         trainedInvertedIndex = new Map();
+        const docFreq: Map<string, number> = new Map();
+        const N = trainingSet.length;
+
         trainingSet.forEach((ticket, index) => {
             const ticketText = `${ticket.problem_description.toLowerCase()} ${ticket.category?.toLowerCase() || ''}`;
-            const tokens = Array.from(new Set( // Use Set to store unique tokens per ticket
-                ticketText
-                    .replace(/[^\w\s]/g, '')
-                    .split(/\s+/)
-                    .filter(word => word.length > 2 && !STOP_WORDS.has(word))
-            ));
+            const tokens = tokenize(ticketText);
+            const uniqueTokens = Array.from(new Set(tokens));
             
-            tokens.forEach(token => {
+            // Build inverted index
+            uniqueTokens.forEach(token => {
                 if (!trainedInvertedIndex!.has(token)) {
                     trainedInvertedIndex!.set(token, []);
                 }
                 trainedInvertedIndex!.get(token)!.push(index);
             });
+
+            // Build document frequency map for IDF
+            uniqueTokens.forEach(token => {
+                docFreq.set(token, (docFreq.get(token) || 0) + 1);
+            });
         });
 
+        // Calculate and store IDF values with smoothing
+        trainedIdfMap = new Map();
+        for (const [token, count] of docFreq.entries()) {
+            // Add 1 to N for smoothing, preventing division by zero for terms in all docs
+            const idf = Math.log(1 + ((N + 1) / (count + 1)));
+            trainedIdfMap.set(token, idf);
+        }
+        console.log(`[API] Built TF-IDF model with ${trainedIdfMap.size} unique terms.`);
 
-        // 2. Evaluate model on test set
+
+        // 3. Evaluate model on test set
         let correctCategory = 0;
         let correctPriority = 0;
         const categoryPerformance: Record<string, {correct: number, total: number}> = {};
 
         testSet.forEach(testTicket => {
-            // Simulate a prediction by finding the most similar ticket in the training set (now faster with index)
+            // Simulate a prediction by finding the most similar ticket in the training set (now faster with index and TF-IDF)
             const prediction = filterSimilarTickets(testTicket.problem_description, trainingSet);
             
             const predictedCategory = prediction.length > 0 ? prediction[0].category : 'Uncategorized';
@@ -418,6 +463,7 @@ export const proposeCsvMapping = async (file: File): Promise<{ headers: string[]
     currentTrainingStatus = 'idle';
     trainedKnowledgeBase = [];
     trainedInvertedIndex = null;
+    trainedIdfMap = null;
     trainedKpis = null;
     trainedRootCauses = [];
     trainedHeatmapData = [];
@@ -459,7 +505,16 @@ export const proposeCsvMapping = async (file: File): Promise<{ headers: string[]
     });
 };
 
-export const uploadKnowledgeBase = (file: File, mapping: CsvHeaderMapping): Promise<{ report: EdaReport; categoryMapping: Record<string, string>; rawCategoryCounts: Record<string, number>; }> => {
+export const uploadKnowledgeBase = (
+  file: File,
+  mapping: CsvHeaderMapping
+): Promise<{
+  report: EdaReport;
+  categoryMapping: Record<string, string>;
+  rawCategoryCounts: Record<string, number>;
+  priorityMapping: Record<string, string>;
+  rawPriorityCounts: Record<string, number>;
+}> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = async (event) => {
@@ -493,22 +548,33 @@ export const uploadKnowledgeBase = (file: File, mapping: CsvHeaderMapping): Prom
                     return ticketData;
                 }).filter(t => t.problem_description); // Always filter out rows with no description
 
-                const categoryIndex = headerIndexMap['category'];
                 const rawCategoryCounts: Record<string, number> = {};
-                if (categoryIndex !== undefined) {
-                    rawParsedTickets.forEach(ticket => {
-                        const rawCategory = ticket.category || '';
-                        if (rawCategory) {
-                            rawCategoryCounts[rawCategory] = (rawCategoryCounts[rawCategory] || 0) + 1;
-                        }
-                    });
-                }
+                rawParsedTickets.forEach(ticket => {
+                    const rawCategory = ticket.category || '';
+                    if (rawCategory) {
+                        rawCategoryCounts[rawCategory] = (rawCategoryCounts[rawCategory] || 0) + 1;
+                    }
+                });
                 
-                // Get initial AI-powered normalization for categories
+                const rawPriorityCounts: Record<string, number> = {};
+                 rawParsedTickets.forEach(ticket => {
+                    const rawPriority = ticket.priority || '';
+                    if (rawPriority) {
+                        rawPriorityCounts[rawPriority] = (rawPriorityCounts[rawPriority] || 0) + 1;
+                    }
+                });
+
+                // Get initial AI-powered normalization for categories and priorities
                 const uniqueRawCategories = Object.keys(rawCategoryCounts);
                 let categoryMapping: Record<string, string> = {};
                 if (uniqueRawCategories.length > 0) {
                     categoryMapping = await getNormalizedMappings(uniqueRawCategories, dynamicCategories, 'Category', 'Uncategorized');
+                }
+
+                const uniqueRawPriorities = Object.keys(rawPriorityCounts);
+                let priorityMapping: Record<string, string> = {};
+                if (uniqueRawPriorities.length > 0) {
+                    priorityMapping = await getNormalizedMappings(uniqueRawPriorities, dynamicPriorities, 'Priority', 'Medium');
                 }
                 
                 // --- OUTLIER DETECTION ---
@@ -586,6 +652,8 @@ export const uploadKnowledgeBase = (file: File, mapping: CsvHeaderMapping): Prom
                     },
                     categoryMapping,
                     rawCategoryCounts,
+                    priorityMapping,
+                    rawPriorityCounts,
                 });
 
             } catch (error) {
@@ -597,22 +665,17 @@ export const uploadKnowledgeBase = (file: File, mapping: CsvHeaderMapping): Prom
     });
 };
 
-export const finalizeTicketData = (finalCategoryMapping: Record<string, string>): Promise<{ cleanedRowCount: number }> => {
+export const finalizeTicketData = (
+    finalCategoryMapping: Record<string, string>,
+    finalPriorityMapping: Record<string, string>
+): Promise<{ cleanedRowCount: number }> => {
     return new Promise(async (resolve, reject) => {
-        // Full priority normalization on the final step
-        const uniqueRawPriorities = [...new Set(rawParsedTickets.map(t => t.priority).filter(Boolean))];
-        let priorityMapping: Record<string, string> = {};
-        if (uniqueRawPriorities.length > 0) {
-            // Use PREDEFINED_PRIORITIES to guide normalization
-            priorityMapping = await getNormalizedMappings(uniqueRawPriorities, PREDEFINED_PRIORITIES, 'Priority', 'Medium');
-        }
-
         uploadedTickets = rawParsedTickets.map((rawTicket, index): SimilarTicket => {
             return {
                 ticket_no: rawTicket.ticket_no || `UPL-${index}`,
                 problem_description: rawTicket.problem_description,
                 category: finalCategoryMapping[rawTicket.category] || 'Uncategorized',
-                priority: priorityMapping[rawTicket.priority] || 'Medium',
+                priority: finalPriorityMapping[rawTicket.priority] || 'Medium',
                 solution_text: rawTicket.solution_text,
                 similarity_score: 1,
             };
@@ -637,6 +700,7 @@ export const initiateTraining = (): Promise<{ status: 'ok' }> => {
     isModelTrained = false;
     modelAccuracyReport = null;
     trainedInvertedIndex = null;
+    trainedIdfMap = null;
     
     setTimeout(async () => {
         await processTrainedData();
