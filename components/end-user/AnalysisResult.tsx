@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import type { AnalysisResultData } from '../../types';
 import ReactMarkdown from 'react-markdown';
 
@@ -13,6 +14,9 @@ interface AnalysisResultProps {
 
 const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onBack, feedbackGiven, onCreateTicket, onReset }) => {
   const isFromSimilarIssue = result.fromSimilarIssue === true;
+  const [showAllSimilar, setShowAllSimilar] = useState(false);
+
+  const similarIssuesToShow = showAllSimilar ? result.similarIssues : result.similarIssues.slice(0, 3);
 
   const renderFeedbackSection = () => {
     if (feedbackGiven === 'positive') {
@@ -83,8 +87,9 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onB
             {isFromSimilarIssue ? 'Matched Issue & Solution' : '✅ Previously Solved Similar Issues'}
         </h3>
         {result.similarIssues.length > 0 ? (
+          <>
             <ul className="space-y-3">
-            {result.similarIssues.map((issue) => (
+            {similarIssuesToShow.map((issue) => (
                 <li key={issue.ticket_no} className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <p className="font-medium text-sm">{issue.problem_description}</p>
                 <details className="mt-2 text-sm" open={isFromSimilarIssue}>
@@ -94,6 +99,17 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onB
                 </li>
             ))}
             </ul>
+            {result.similarIssues.length > 3 && !showAllSimilar && (
+                <div className="text-center">
+                    <button
+                        onClick={() => setShowAllSimilar(true)}
+                        className="mt-2 px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                    >
+                        Show {result.similarIssues.length - 3} more
+                    </button>
+                </div>
+            )}
+          </>
         ) : (
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <p className="text-sm text-gray-500 dark:text-gray-400">

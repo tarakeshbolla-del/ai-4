@@ -1,3 +1,4 @@
+
 import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint, CsvHeaderMapping, OutlierReport, ModelAccuracyReport } from '../types';
 import { TICKET_CATEGORIES as PREDEFINED_CATEGORIES, TICKET_PRIORITIES as PREDEFINED_PRIORITIES } from '../constants';
 import { getAiSuggestion, getMappingSuggestion, getNormalizedMappings, generateKeywords } from '../services/geminiService';
@@ -188,7 +189,7 @@ export const analyzeIssue = async (formData: FormData): Promise<AnalysisResultDa
 export const getSimilarIssues = (query: string): Promise<SimilarTicket[]> => {
     return new Promise(resolve => {
         setTimeout(() => {
-            resolve(filterSimilarTickets(query).slice(0, 2));
+            resolve(filterSimilarTickets(query).slice(0, 3));
         }, 500);
     });
 };
