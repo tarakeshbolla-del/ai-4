@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getProblemClusterData, getUserFrustrationData, getPredictiveHotspots, getSlaBreachTickets, getTicketVolumeForecast } from '../../services/api';
+import { socketService } from '../../services/socketService';
 import type { SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint } from '../../types';
 import SunburstChart from './charts/SunburstChart';
 import SentimentTrendChart from './charts/SentimentTrendChart';
@@ -73,6 +74,21 @@ const AnalyticsView: React.FC = () => {
             setTicketForecast(data);
             setIsForecastLoading(false);
         });
+
+        // Setup live listener for new SLA tickets
+        socketService.on('new_sla_ticket', (newTicket: SlaBreachTicket) => {
+            const ticketWithFlag = { ...newTicket, isNew: true };
+
+            setSlaTickets(prev => {
+                const newTickets = [ticketWithFlag, ...prev];
+                return Array.from(new Map(newTickets.map(t => [t.ticket_no, t])).values());
+            });
+
+            setTimeout(() => {
+                setSlaTickets(prev => prev.map(t => t.ticket_no === newTicket.ticket_no ? { ...t, isNew: false } : t));
+            }, 2500);
+        });
+
     }, []);
 
     const handleHotspotClick = (name: string) => {
@@ -160,7 +176,7 @@ const AnalyticsView: React.FC = () => {
                             {slaTickets.length > 0 ? (
                                 <ul className="space-y-2">
                                     {slaTickets.map((ticket, index) => (
-                                        <li key={`${ticket.ticket_no}-${index}`} className="flex justify-between items-center text-sm p-2 bg-gray-50 dark:bg-gray-700/50 rounded-md">
+                                        <li key={`${ticket.ticket_no}-${index}`} className={`flex justify-between items-center text-sm p-2 rounded-md transition-colors duration-1000 ${ticket.isNew ? 'bg-sky-200 dark:bg-sky-800' : 'bg-gray-50 dark:bg-gray-700/50'}`}>
                                             <span className="font-mono text-xs">{ticket.ticket_no}</span>
                                             <span className={`font-semibold text-xs ${ticket.priority === 'Critical' ? 'text-red-500' : 'text-yellow-500'}`}>{ticket.priority}</span>
                                             <span className="text-xs">Breach in <span className="font-bold">{ticket.timeToBreach}</span></span>

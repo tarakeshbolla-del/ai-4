@@ -79,6 +79,7 @@ export interface SlaBreachTicket {
     ticket_no: string;
     priority: 'High' | 'Critical';
     timeToBreach: string; // e.g., "35m"
+    isNew?: boolean;
 }
 
 export interface TicketVolumeForecastDataPoint {

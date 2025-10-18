@@ -1,5 +1,5 @@
 
-import type { Kpis, HeatmapDataPoint } from '../types';
+import type { Kpis, HeatmapDataPoint, SlaBreachTicket } from '../types';
 import { TICKET_CATEGORIES, TICKET_PRIORITIES } from '../constants';
 import { getTrainingState } from './api';
 
@@ -52,6 +52,11 @@ class MockSocket {
     if (this.listeners.has(event)) {
       this.listeners.get(event)?.forEach(callback => callback(data));
     }
+  }
+
+  public emitNewTicket(ticket: SlaBreachTicket) {
+    this.emit('new_sla_ticket', ticket);
+    console.log('[Socket] Emitted new_sla_ticket', ticket);
   }
 
   private simulateEvents() {

@@ -2,6 +2,7 @@
 import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint, CsvHeaderMapping, OutlierReport, ModelAccuracyReport } from '../types';
 import { TICKET_CATEGORIES as PREDEFINED_CATEGORIES, TICKET_PRIORITIES as PREDEFINED_PRIORITIES } from '../constants';
 import { getAiSuggestion, getMappingSuggestion, getNormalizedMappings, generateKeywords } from '../services/geminiService';
+import { socketService } from './socketService';
 
 // --- STATE MANAGEMENT ---
 let isModelTrained = false;
@@ -33,6 +34,7 @@ let trainedRootCauses: RootCauseData[] = [];
 let trainedHeatmapData: HeatmapDataPoint[] = [];
 let modelAccuracyReport: ModelAccuracyReport | null = null;
 let trainedWordCloudDataCache: Map<string, { word: string, value: number }[]> = new Map();
+let liveSlaTickets: SlaBreachTicket[] = [];
 
 // New state for performance optimization
 type InvertedIndex = Map<string, number[]>; // Map<token, ticket_indices[]>
@@ -201,6 +203,24 @@ export const submitFeedback = (feedback: 'positive' | 'negative'): Promise<{ sta
         kpis.deflectionRate = Math.min(100, kpis.deflectionRate + 0.1);
     }
     return new Promise(resolve => setTimeout(() => resolve({ status: 'ok' }), 300));
+}
+
+export const createNewTicket = (description: string, predictedCategory: string, predictedPriority: string): Promise<{ status: 'ok', ticket: SlaBreachTicket | null }> => {
+    return new Promise(resolve => {
+        if (predictedPriority === 'High' || predictedPriority === 'Critical') {
+            const newTicket: SlaBreachTicket = {
+                ticket_no: `LIVE-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+                priority: predictedPriority as 'High' | 'Critical',
+                timeToBreach: predictedPriority === 'Critical' ? '59m' : '3h 59m'
+            };
+            liveSlaTickets.unshift(newTicket);
+            socketService.emitNewTicket(newTicket);
+            resolve({ status: 'ok', ticket: newTicket });
+        } else {
+            console.log(`[API] Low/Medium priority ticket created ('${description.substring(0, 30)}...'), not added to SLA ticker.`);
+            resolve({ status: 'ok', ticket: null });
+        }
+    });
 }
 
 // --- DATA PROCESSING LOGIC ---
@@ -472,6 +492,7 @@ export const proposeCsvMapping = async (file: File): Promise<{ headers: string[]
     modelAccuracyReport = null;
     rawParsedTickets = [];
     uploadedTickets = [];
+    liveSlaTickets = [];
     // Restore normalization helpers to their default state
     dynamicCategories = [...PREDEFINED_CATEGORIES];
     dynamicPriorities = [...PREDEFINED_PRIORITIES];
@@ -907,34 +928,33 @@ export const getPredictiveHotspots = (): Promise<PredictiveHotspot[]> => {
 export const getSlaBreachTickets = (): Promise<SlaBreachTicket[]> => {
     return new Promise(resolve => {
         setTimeout(() => {
+            let baseTickets: SlaBreachTicket[] = [];
             if (isModelTrained) {
                 const highPriorityTickets = uploadedTickets.filter(
                     t => t.priority === 'High' || t.priority === 'Critical'
                 );
                 
-                // Shuffle and pick a few
                 const shuffled = highPriorityTickets.sort(() => 0.5 - Math.random());
                 const selectedTickets = shuffled.slice(0, 5);
                 
                 const breachTimes = ['15m', '25m', '35m', '45m', '55m', '1h 10m', '1h 30m'];
                 
-                const slaTickets: SlaBreachTicket[] = selectedTickets.map(ticket => ({
+                baseTickets = selectedTickets.map(ticket => ({
                     ticket_no: ticket.ticket_no,
                     priority: ticket.priority as 'High' | 'Critical',
                     timeToBreach: breachTimes[Math.floor(Math.random() * breachTimes.length)],
                 }));
-                
-                resolve(slaTickets);
-            
             } else {
-                // Fallback to original mock
-                resolve([
+                baseTickets = [
                     { ticket_no: 'T-CRIT-001', priority: 'Critical', timeToBreach: '15m' },
                     { ticket_no: 'T-HIGH-045', priority: 'High', timeToBreach: '35m' },
                     { ticket_no: 'T-HIGH-048', priority: 'High', timeToBreach: '55m' },
                     { ticket_no: 'T-CRIT-002', priority: 'Critical', timeToBreach: '1h 10m' },
-                ]);
+                ];
             }
+            const allTickets = [...liveSlaTickets, ...baseTickets];
+            const uniqueTickets = Array.from(new Map(allTickets.map(t => [t.ticket_no, t])).values());
+            resolve(uniqueTickets);
         }, 950);
     });
 };

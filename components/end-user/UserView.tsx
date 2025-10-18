@@ -1,10 +1,11 @@
+
 import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SubmissionForm from './SubmissionForm';
 import AnalysisResult from './AnalysisResult';
 import LoadingSpinner from '../common/LoadingSpinner';
 import Header from '../common/Header';
-import { analyzeIssue, submitFeedback } from '../../services/api';
+import { analyzeIssue, submitFeedback, createNewTicket } from '../../services/api';
 import type { AnalysisResultData, SimilarTicket } from '../../types';
 
 type ViewState = 'form' | 'loading' | 'result' | 'confirmation';
@@ -43,10 +44,21 @@ const UserView: React.FC = () => {
     setFeedbackGiven(feedback);
   }, []);
 
-  const handleCreateTicket = useCallback(() => {
+  const handleCreateTicket = useCallback(async () => {
+    if (analysisResult) {
+        const ticketDescription = analysisResult.fromSimilarIssue 
+            ? analysisResult.similarIssues[0].problem_description 
+            : description;
+        
+        await createNewTicket(
+            ticketDescription, 
+            analysisResult.predictedModule, 
+            analysisResult.predictedPriority
+        );
+    }
     setFeedbackMessage('Thank you. A support ticket has been created.');
     setViewState('confirmation');
-  }, []);
+  }, [analysisResult, description]);
   
   const handleSimilarIssueClick = useCallback((issue: SimilarTicket) => {
     const result: AnalysisResultData = {
