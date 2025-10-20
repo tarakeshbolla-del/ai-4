@@ -162,57 +162,70 @@ export async function getNormalizedMappings(
     return {};
   }
 
-  const prompt = `
-    You are an expert data cleaner for an IT support ticketing system.
-    Your task is to normalize a list of raw, messy values for the "${fieldName}" field by mapping them to a standard schema.
-
-    **Target Schema (Standard Values):** ${JSON.stringify(standardValues)}
-    *This is the preferred list of values. You should map to these whenever possible.*
-
-    **Raw Input Values to Normalize:** ${JSON.stringify(rawValues)}
-
-    **Instructions (follow in this order of priority):**
-    1.  **Map to Target Schema:** For each raw value, your primary goal is to map it to one of the "Target Schema" values. This includes handling synonyms (e.g., "VPN issues" -> "Network"), misspellings (e.g., "Hardwear" -> "Hardware"), or more specific versions (e.g., "Password Reset" -> "Account Management"). Be aggressive in matching to the existing schema.
-    2.  **Create New Values (Only if Necessary):** If a raw value represents a legitimate, distinct concept that absolutely cannot fit into the existing "Target Schema" (e.g., a completely new product line like "Mobile App Support"), normalize its capitalization (e.g., "mobile app support" -> "Mobile App Support") and use that as the new value. Do this sparingly.
-    3.  **Use Default for Vague/Irrelevant Data:** If a raw value is too vague, irrelevant (e.g., "N/A", "See description"), or nonsensical, map it to the default value: "${defaultValue}".
-    4.  **Format:** Your response MUST be a JSON array of objects, where each object has two keys: "rawValue" and "normalizedValue".
-    5.  **Completeness:** Ensure every single raw value from the input list is included exactly once in the response.
-    `;
-
-  const responseSchema = {
-    type: Type.ARRAY,
-    items: {
-      type: Type.OBJECT,
-      properties: {
-        rawValue: { type: Type.STRING },
-        normalizedValue: { type: Type.STRING },
-      },
-      required: ['rawValue', 'normalizedValue'],
-    },
-  };
+  const BATCH_SIZE = 100; // Process 100 raw values per API call
+  const DELAY_MS = 500; // Delay between calls to stay under quota
+  const allMappings: Record<string, string> = {};
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: responseSchema,
-      },
-    });
+    for (let i = 0; i < rawValues.length; i += BATCH_SIZE) {
+        const batch = rawValues.slice(i, i + BATCH_SIZE);
+        
+        const prompt = `
+            You are an expert data cleaner for an IT support ticketing system.
+            Your task is to normalize a list of raw, messy values for the "${fieldName}" field by mapping them to a standard schema.
 
-    const jsonString = response.text.trim();
-    const mappingArray: { rawValue: string; normalizedValue: string }[] = JSON.parse(jsonString);
+            **Target Schema (Standard Values):** ${JSON.stringify(standardValues)}
+            *This is the preferred list of values. You should map to these whenever possible.*
 
-    const mapping = mappingArray.reduce((acc, item) => {
-      acc[item.rawValue] = item.normalizedValue;
-      return acc;
-    }, {} as Record<string, string>);
+            **Raw Input Values to Normalize:** ${JSON.stringify(batch)}
 
-    return mapping;
+            **Instructions (follow in this order of priority):**
+            1.  **Map to Target Schema:** For each raw value, your primary goal is to map it to one of the "Target Schema" values. This includes handling synonyms (e.g., "VPN issues" -> "Network"), misspellings (e.g., "Hardwear" -> "Hardware"), or more specific versions (e.g., "Password Reset" -> "Account Management"). Be aggressive in matching to the existing schema.
+            2.  **Create New Values (Only if Necessary):** If a raw value represents a legitimate, distinct concept that absolutely cannot fit into the existing "Target Schema" (e.g., a completely new product line like "Mobile App Support"), normalize its capitalization (e.g., "mobile app support" -> "Mobile App Support") and use that as the new value. Do this sparingly.
+            3.  **Use Default for Vague/Irrelevant Data:** If a raw value is too vague, irrelevant (e.g., "N/A", "See description"), or nonsensical, map it to the default value: "${defaultValue}".
+            4.  **Format:** Your response MUST be a JSON array of objects, where each object has two keys: "rawValue" and "normalizedValue".
+            5.  **Completeness:** Ensure every single raw value from the input list is included exactly once in the response.
+        `;
+
+        const responseSchema = {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    rawValue: { type: Type.STRING },
+                    normalizedValue: { type: Type.STRING },
+                },
+                required: ['rawValue', 'normalizedValue'],
+            },
+        };
+
+        console.log(`[Gemini] Normalizing ${fieldName} batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(rawValues.length / BATCH_SIZE)}...`);
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: responseSchema,
+            },
+        });
+
+        const jsonString = response.text.trim();
+        const mappingArray: { rawValue: string; normalizedValue: string }[] = JSON.parse(jsonString);
+
+        mappingArray.forEach(item => {
+            allMappings[item.rawValue] = item.normalizedValue;
+        });
+
+        // Add delay if there are more batches to process
+        if (i + BATCH_SIZE < rawValues.length) {
+            await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+        }
+    }
+    return allMappings;
+
   } catch (error) {
     console.error(`Error calling Gemini API for ${fieldName} normalization:`, error);
-    // Fallback: return an empty mapping so the default values are used.
+    // Fallback: return an empty mapping so the default values are used, consistent with original behavior.
     return {};
   }
 }

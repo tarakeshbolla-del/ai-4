@@ -27,6 +27,12 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data }) => {
       return intensity > 0.6 ? 'text-white/90' : 'text-slate-800/80 dark:text-slate-100/80';
   }
 
+  const priorityDisplayMap: Record<string, string> = {
+    p1: 'High',
+    p2: 'Medium',
+    p3: 'Low',
+  };
+
   // Dynamically get categories and priorities from the data
   // Fix: Replaced `new Set()` with `reduce()` to ensure correct type inference and avoid 'unknown[]' error.
   const categories: string[] = data.reduce((acc: string[], point) => {
@@ -44,7 +50,7 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data }) => {
   }, []);
 
   // Ensure a consistent, logical order for priorities
-  const priorityOrder = ['Low', 'Medium', 'High', 'Critical'];
+  const priorityOrder = ['p3', 'p2', 'p1', 'Low', 'Medium', 'High', 'Critical'];
   priorities.sort((a, b) => {
     const indexA = priorityOrder.indexOf(a);
     const indexB = priorityOrder.indexOf(b);
@@ -63,7 +69,7 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data }) => {
             
             {priorities.slice().reverse().map(priority => (
                 <React.Fragment key={priority}>
-                    <div className="font-bold text-sm text-right pr-2 flex items-center justify-end">{priority}</div>
+                    <div className="font-bold text-sm text-right pr-2 flex items-center justify-end">{priorityDisplayMap[priority] || priority}</div>
                     {categories.map(category => {
                         const value = findValue(category, priority);
                         return (
