@@ -25,6 +25,7 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data, onCellClick }) => {
 
   const getTextColor = (value: number) => {
       const intensity = Math.min(value / maxVal, 1);
+      if (value === 0) return 'text-slate-400/80 dark:text-slate-500/80';
       return intensity > 0.6 ? 'text-white/90' : 'text-slate-800/80 dark:text-slate-100/80';
   }
 
@@ -82,7 +83,7 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data, onCellClick }) => {
                                 title={`${value} tickets`}
                                 aria-label={`View ${value} tickets for ${category} with ${priorityDisplayMap[priority] || priority} priority`}
                             >
-                                <span className={`text-sm font-medium ${getTextColor(value)}`}>{value > 0 ? value : ''}</span>
+                                <span className={`text-sm font-medium ${getTextColor(value)}`}>{value}</span>
                              </button>
                         );
                     })}

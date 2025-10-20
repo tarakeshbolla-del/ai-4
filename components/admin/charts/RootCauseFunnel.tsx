@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { ResponsiveContainer, Treemap } from 'recharts';
 import type { RootCauseData } from '../../../types';
 import { useTheme } from '../../../hooks/useTheme';
 
@@ -9,6 +9,60 @@ interface RootCauseFunnelProps {
   selectedCause: string | null;
 }
 
+const CustomizedContent: React.FC<any> = ({
+  depth, x, y, width, height, name, tickets, selectedCause, onBarClick, colors,
+}) => {
+  // Only render the actual data tiles, not the root container
+  if (depth < 1) return null;
+
+  const isSelected = name === selectedCause;
+  const fill = isSelected ? colors.accentHover : colors.accent;
+  const opacity = isSelected ? 1 : 0.85;
+
+  const canFitText = width > 60 && height > 40;
+  const fontSize = Math.max(12, Math.min(width / 5, height / 5, 18));
+
+  return (
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        style={{
+          fill,
+          opacity,
+          stroke: '#fff',
+          strokeWidth: 2,
+          cursor: 'pointer',
+          transition: 'fill 0.3s ease, opacity 0.3s ease',
+        }}
+        onClick={() => onBarClick(name)}
+      />
+      {canFitText && (
+        <text
+          x={x + width / 2}
+          y={y + height / 2}
+          textAnchor="middle"
+          fill="#fff"
+          style={{
+            fontSize: `${fontSize}px`,
+            fontWeight: 'bold',
+            pointerEvents: 'none',
+            textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+          }}
+        >
+          <tspan x={x + width / 2} dy="-0.5em">{name}</tspan>
+          <tspan x={x + width / 2} dy="1.2em" style={{ fontSize: `${fontSize * 0.85}px`, fontWeight: 'normal' }}>
+            {tickets.toLocaleString()}
+          </tspan>
+        </text>
+      )}
+    </g>
+  );
+};
+
+
 const RootCauseFunnel: React.FC<RootCauseFunnelProps> = ({ data, onBarClick, selectedCause }) => {
   const { theme } = useTheme();
   const colors = theme === 'light' 
@@ -17,29 +71,21 @@ const RootCauseFunnel: React.FC<RootCauseFunnelProps> = ({ data, onBarClick, sel
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
-        <XAxis dataKey="name" tick={{ fill: colors.text, fontSize: 12 }} />
-        <YAxis tick={{ fill: colors.text, fontSize: 12 }} />
-        <Tooltip
-          contentStyle={{ 
-            backgroundColor: theme === 'light' ? '#FFFFFF' : '#111827',
-            borderColor: theme === 'light' ? '#E5E7EB' : '#1f2937'
-          }}
-          cursor={{ fill: theme === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}
-        />
-        <Legend wrapperStyle={{ fontSize: 14 }}/>
-        <Bar dataKey="tickets" name="Number of Tickets" fill={colors.accent} onClick={(d) => onBarClick(d.name)}>
-             {data.map((entry) => (
-                <rect 
-                    key={`bar-${entry.name}`}
-                    fill={entry.name === selectedCause ? colors.accentHover : colors.accent}
-                    opacity={entry.name === selectedCause ? 1 : 0.8}
-                    className="cursor-pointer"
-                />
-            ))}
-        </Bar>
-      </BarChart>
+      <Treemap
+        data={data}
+        dataKey="tickets"
+        ratio={16 / 9}
+        stroke={theme === 'light' ? '#fff' : '#111827'}
+        content={
+            <CustomizedContent 
+                colors={colors} 
+                selectedCause={selectedCause} 
+                onBarClick={onBarClick} 
+            />
+        }
+        isAnimationActive={true}
+        animationDuration={500}
+      />
     </ResponsiveContainer>
   );
 };

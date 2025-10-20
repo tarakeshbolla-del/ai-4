@@ -479,8 +479,7 @@ async function processTrainedData() {
 
     trainedRootCauses = Object.entries(causeCounts)
         .map(([name, tickets]) => ({ name, tickets }))
-        .sort((a, b) => b.tickets - a.tickets)
-        .slice(0, 6);
+        .sort((a, b) => b.tickets - a.tickets);
 
     // Calculate Heatmap Data
     const heatmapCounts: { [key: string]: number } = {};
@@ -496,10 +495,10 @@ async function processTrainedData() {
         })
     );
     
-    // Pre-calculate and cache word cloud data
+    // Pre-calculate and cache word cloud data sequentially to avoid rate limiting
     console.log('[API] Pre-calculating word cloud data for top root causes...');
     trainedWordCloudDataCache.clear();
-    const keywordPromises = trainedRootCauses.map(async (cause) => {
+    for (const cause of trainedRootCauses) {
         const descriptions = uploadedTickets
             .filter(t => t.category === cause.name && t.problem_description)
             .map(t => t.problem_description);
@@ -507,15 +506,19 @@ async function processTrainedData() {
         if (descriptions.length > 0) {
             const shuffled = descriptions.sort(() => 0.5 - Math.random());
             const sample = shuffled.slice(0, 50); // Take a sample
-            const keywords = await generateKeywords(sample, cause.name);
-            trainedWordCloudDataCache.set(cause.name, keywords);
-            console.log(`[API] Cached keywords for '${cause.name}'`);
+            try {
+                const keywords = await generateKeywords(sample, cause.name);
+                trainedWordCloudDataCache.set(cause.name, keywords);
+                console.log(`[API] Cached keywords for '${cause.name}'`);
+                // Add a small delay between each call
+                await new Promise(resolve => setTimeout(resolve, 300));
+            } catch (error) {
+                console.error(`[API] Failed to generate keywords for '${cause.name}'.`, error);
+            }
         }
-    });
+    }
 
-    await Promise.all(keywordPromises);
     console.log('[API] Finished pre-calculating word cloud data.');
-
     console.log('[API] Finished processing trained data. Dashboards will now use realistic data.');
 }
 
@@ -685,11 +688,13 @@ export const uploadKnowledgeBase = async (
             }
         });
 
-        // Get initial AI-powered normalization for categories and priorities
+        // USER REQUEST: Do not normalize categories. Create a 1-to-1 mapping instead.
         const uniqueRawCategories = Object.keys(rawCategoryCounts);
-        let categoryMapping: Record<string, string> = {};
+        const categoryMapping: Record<string, string> = {};
         if (uniqueRawCategories.length > 0) {
-            categoryMapping = await getNormalizedMappings(uniqueRawCategories, dynamicCategories, 'Category', 'Uncategorized');
+            uniqueRawCategories.forEach(cat => {
+                categoryMapping[cat] = cat;
+            });
         }
 
         const uniqueRawPriorities = Object.keys(rawPriorityCounts);

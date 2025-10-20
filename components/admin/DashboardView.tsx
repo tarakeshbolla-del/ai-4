@@ -48,7 +48,7 @@ const DashboardView: React.FC = () => {
     const tickets = await getTicketsByCategoryAndPriority(category, priority);
     
     setModalData({
-        title: `${tickets.length} ${priorityDisplayMap[priority] || priority} Priority tickets for ${category}`,
+        title: `${tickets.length} ${priorityDisplayMap[priority] || priority} tickets for ${category}`,
         tickets: tickets
     });
     setIsModalLoading(false);
@@ -126,19 +126,21 @@ const DashboardView: React.FC = () => {
         <KpiCard title="First Contact Resolution" value={`${kpis?.firstContactResolution.toFixed(1)}%`} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3 bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border min-h-[352px] flex flex-col">
-          <h3 className="text-lg font-semibold mb-1">Top Root Causes (Pareto)</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Click a bar to explore related keywords.</p>
-          {rootCauses.length > 0 ? (
-            <RootCauseFunnel data={rootCauses} onBarClick={handleBarClick} selectedCause={selectedCause} />
-          ) : (
-            <div className="flex-grow flex items-center justify-center text-center text-gray-500 dark:text-gray-400">
-              <p>Train a model from the Knowledge Base page to see root cause analysis.</p>
-            </div>
-          )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border min-h-[352px] flex flex-col">
+          <h3 className="text-lg font-semibold mb-1">Top Root Causes</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Click a tile to explore related keywords.</p>
+          <div className="flex-grow">
+            {rootCauses.length > 0 ? (
+                <RootCauseFunnel data={rootCauses} onBarClick={handleBarClick} selectedCause={selectedCause} />
+            ) : (
+                <div className="flex h-full items-center justify-center text-center text-gray-500 dark:text-gray-400">
+                <p>Train a model from the Knowledge Base page to see root cause analysis.</p>
+                </div>
+            )}
+          </div>
         </div>
-        <div className="lg:col-span-2 bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border min-h-[352px] flex flex-col">
+        <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border min-h-[352px] flex flex-col">
           <h3 className="text-lg font-semibold mb-1">
             Problem Keywords
           </h3>

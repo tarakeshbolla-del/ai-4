@@ -1,9 +1,39 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 
 // IMPORTANT: In a real application, the API key would be managed securely on a backend server,
 // and this service would make requests to that server instead of directly to the Gemini API.
 // For this application, we assume the API key is provided via environment variables.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+/**
+ * A wrapper for Gemini API calls that implements retry logic with exponential backoff
+ * for rate limit errors (429).
+ */
+const geminiApiCallWithRetry = async <T>(
+  apiCall: () => Promise<T>,
+  maxRetries = 3,
+  initialDelay = 1000
+): Promise<T> => {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await apiCall();
+    } catch (error: any) {
+      attempt++;
+      // Check for rate limit error indicators in the error message.
+      const errorMessage = (error?.message || error?.toString() || '').toLowerCase();
+      if ((errorMessage.includes('429') || errorMessage.includes('rate limit') || errorMessage.includes('resource_exhausted')) && attempt < maxRetries) {
+        // Exponential backoff with jitter
+        const delay = initialDelay * Math.pow(2, attempt - 1) + Math.random() * 1000; 
+        console.warn(`Gemini API rate limit exceeded. Retrying in ${Math.round(delay)}ms... (Attempt ${attempt}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        // For non-retriable errors or after max retries, re-throw.
+        throw error;
+      }
+    }
+  }
+};
 
 
 /**
@@ -39,10 +69,12 @@ export async function getAiSuggestion(
         });
     }
 
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash', // This model supports multimodal input
-        contents: { parts },
-    });
+    const response = await geminiApiCallWithRetry<GenerateContentResponse>(() => 
+        ai.models.generateContent({
+            model: 'gemini-2.5-flash', // This model supports multimodal input
+            contents: { parts },
+        })
+    );
     
     return response.text;
     
@@ -53,104 +85,51 @@ export async function getAiSuggestion(
 }
 
 /**
- * Uses Gemini to suggest a mapping from user CSV headers to required fields.
+ * Uses a heuristic to suggest a mapping from user CSV headers to required fields.
  */
 export async function getMappingSuggestion(userHeaders: string[]): Promise<Record<string, string | null>> {
     const requiredFields = ['ticket_no', 'problem_description', 'category', 'solution_text', 'technician', 'request_status', 'due_by_time', 'created_time', 'responded_time', 'request_type'];
     
-    const prompt = `
-        Analyze the following list of CSV headers and map them to a predefined set of required fields.
-        
-        CSV Headers: ${JSON.stringify(userHeaders)}
-        
-        Required Fields: ${JSON.stringify(requiredFields)}
-        
-        Instructions:
-        1. For each required field, find the best matching header from the user's CSV list.
-        2. The 'problem_description' field is the most critical. It usually contains long text about the user's issue. Common names are 'description', 'subject', 'summary', 'issue'.
-        3. 'request_status' is the current state of the ticket (e.g., 'Resolved', 'On-hold'). Match to headers like 'status' or 'request status'.
-        4. 'due_by_time' is the final deadline for the ticket. Match to headers like 'DueBy Time' or 'SLA'.
-        5. 'created_time' is when the ticket was created. Match to 'Created Time'.
-        6. 'responded_time' is when a technician responded. Match to 'Responded Date'.
-        7. 'technician' is the name of the assigned support person.
-        8. If a reasonable match for a field cannot be found, the value for that field should be null.
-        9. Return the mapping as a JSON object.
-    `;
-
-    const responseSchema = {
-        type: Type.OBJECT,
-        properties: {
-            ticket_no: { type: Type.STRING, nullable: true, description: "The header for a ticket ID. Null if not found." },
-            problem_description: { type: Type.STRING, nullable: true, description: "The header for the main issue description. Null if not found." },
-            category: { type: Type.STRING, nullable: true, description: "The header for the issue category. Null if not found." },
-            solution_text: { type: Type.STRING, nullable: true, description: "The header for the ticket's solution. Null if not found." },
-            technician: { type: Type.STRING, nullable: true, description: "The header for the assigned technician's name. Null if not found." },
-            request_status: { type: Type.STRING, nullable: true, description: "The header for the ticket's current status. Null if not found." },
-            due_by_time: { type: Type.STRING, nullable: true, description: "The header for the ticket's SLA due date/time. Null if not found." },
-            created_time: { type: Type.STRING, nullable: true, description: "The header for when the ticket was created. Null if not found." },
-            responded_time: { type: Type.STRING, nullable: true, description: "The header for when a technician responded. Null if not found." },
-            request_type: { type: Type.STRING, nullable: true, description: "The header for the type of request. Null if not found." },
-        },
-    };
+    // Heuristic-based mapping as requested to avoid Gemini API calls.
+    const heuristicMapping: Record<string, string | null> = {};
+    const lowerUserHeaders = userHeaders.map(h => h.toLowerCase().replace(/_/g, ' ')); // Normalize headers for better matching
     
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: responseSchema,
-            },
-        });
+    requiredFields.forEach(field => {
+        const fieldSynonyms: Record<string, string[]> = {
+            ticket_no: ['ticket no', 'ticket id', 'request id', 'id', 'number', 'ref'],
+            problem_description: ['problem description', 'description', 'desc', 'summary', 'subject', 'issue', 'text'],
+            category: ['category', 'module', 'area'],
+            solution_text: ['solution text', 'solution', 'resolution', 'fix'],
+            technician: ['technician', 'agent', 'owner', 'assigned to'],
+            request_status: ['request status', 'status'],
+            due_by_time: ['dueby time', 'due by', 'due date', 'sla'],
+            created_time: ['created time', 'created date', 'created'],
+            responded_time: ['responded time', 'responded date', 'responded'],
+            request_type: ['request type', 'type'],
+        };
 
-        const jsonString = response.text.trim();
-        const mapping = JSON.parse(jsonString);
-        
-        // Validate that the returned mapping values are actual user headers or null
-        const validHeaders = new Set(userHeaders);
-        for (const key in mapping) {
-            if (mapping[key] !== null && !validHeaders.has(mapping[key])) {
-                mapping[key] = null; // Invalidate if Gemini hallucinates a header
+        let foundHeader: string | null = null;
+        for (const synonym of fieldSynonyms[field] || [field.replace(/_/g, ' ')]) {
+            // Prefer exact match first, then partial match
+            const exactMatchIndex = lowerUserHeaders.findIndex(h => h === synonym);
+            if (exactMatchIndex !== -1) {
+                foundHeader = userHeaders[exactMatchIndex];
+                break;
+            }
+            const partialMatchIndex = lowerUserHeaders.findIndex(h => h.includes(synonym));
+            if (partialMatchIndex !== -1) {
+                foundHeader = userHeaders[partialMatchIndex];
+                break;
             }
         }
-        return mapping;
+        heuristicMapping[field] = foundHeader;
+    });
 
-    } catch (error) {
-        console.error("Error calling Gemini API for mapping:", error);
-        // Fallback to a simple heuristic if API fails
-        const heuristicMapping: Record<string, string | null> = {};
-        const lowerUserHeaders = userHeaders.map(h => h.toLowerCase());
-        requiredFields.forEach(field => {
-            const fieldSynonyms: Record<string, string[]> = {
-                ticket_no: ['ticket', 'id', 'number', 'ref'],
-                problem_description: ['problem', 'description', 'desc', 'summary', 'subject', 'issue', 'text'],
-                category: ['category', 'module', 'area'],
-                priority: ['priority', 'urgency', 'level'],
-                solution_text: ['solution', 'resolution', 'fix'],
-                technician: ['technician', 'agent', 'owner', 'assigned'],
-                request_status: ['status'],
-                due_by_time: ['due', 'sla'],
-                created_time: ['created'],
-                responded_time: ['responded'],
-                request_type: ['type'],
-            };
-            let foundHeader: string | null = null;
-            for(const synonym of fieldSynonyms[field] || []) {
-                const index = lowerUserHeaders.findIndex(h => h.includes(synonym));
-                if (index !== -1) {
-                    foundHeader = userHeaders[index];
-                    break;
-                }
-            }
-            heuristicMapping[field] = foundHeader;
-        });
-        return heuristicMapping;
-    }
+    return heuristicMapping;
 }
 
 /**
- * Uses Gemini to normalize a list of raw values against a set of standard values.
- * It can map to existing standard values, or identify and clean up new values.
+ * Performs a simple 1-to-1 mapping for raw values without calling an API.
  */
 export async function getNormalizedMappings(
   rawValues: string[],
@@ -158,142 +137,23 @@ export async function getNormalizedMappings(
   fieldName: string,
   defaultValue: string
 ): Promise<Record<string, string>> {
-  if (rawValues.length === 0) {
-    return {};
-  }
-
-  const BATCH_SIZE = 100; // Process 100 raw values per API call
-  const DELAY_MS = 500; // Delay between calls to stay under quota
-  const allMappings: Record<string, string> = {};
-
-  try {
-    for (let i = 0; i < rawValues.length; i += BATCH_SIZE) {
-        const batch = rawValues.slice(i, i + BATCH_SIZE);
-        
-        const prompt = `
-            You are an expert data cleaner for an IT support ticketing system.
-            Your task is to normalize a list of raw, messy values for the "${fieldName}" field by mapping them to a standard schema.
-
-            **Target Schema (Standard Values):** ${JSON.stringify(standardValues)}
-            *This is the preferred list of values. You should map to these whenever possible.*
-
-            **Raw Input Values to Normalize:** ${JSON.stringify(batch)}
-
-            **Instructions (follow in this order of priority):**
-            1.  **Map to Target Schema:** For each raw value, your primary goal is to map it to one of the "Target Schema" values. This includes handling synonyms (e.g., "VPN issues" -> "Network"), misspellings (e.g., "Hardwear" -> "Hardware"), or more specific versions (e.g., "Password Reset" -> "Account Management"). Be aggressive in matching to the existing schema.
-            2.  **Create New Values (Only if Necessary):** If a raw value represents a legitimate, distinct concept that absolutely cannot fit into the existing "Target Schema" (e.g., a completely new product line like "Mobile App Support"), normalize its capitalization (e.g., "mobile app support" -> "Mobile App Support") and use that as the new value. Do this sparingly.
-            3.  **Use Default for Vague/Irrelevant Data:** If a raw value is too vague, irrelevant (e.g., "N/A", "See description"), or nonsensical, map it to the default value: "${defaultValue}".
-            4.  **Format:** Your response MUST be a JSON array of objects, where each object has two keys: "rawValue" and "normalizedValue".
-            5.  **Completeness:** Ensure every single raw value from the input list is included exactly once in the response.
-        `;
-
-        const responseSchema = {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    rawValue: { type: Type.STRING },
-                    normalizedValue: { type: Type.STRING },
-                },
-                required: ['rawValue', 'normalizedValue'],
-            },
-        };
-
-        console.log(`[Gemini] Normalizing ${fieldName} batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(rawValues.length / BATCH_SIZE)}...`);
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: responseSchema,
-            },
-        });
-
-        const jsonString = response.text.trim();
-        const mappingArray: { rawValue: string; normalizedValue: string }[] = JSON.parse(jsonString);
-
-        mappingArray.forEach(item => {
-            allMappings[item.rawValue] = item.normalizedValue;
-        });
-
-        // Add delay if there are more batches to process
-        if (i + BATCH_SIZE < rawValues.length) {
-            await new Promise(resolve => setTimeout(resolve, DELAY_MS));
-        }
-    }
-    return allMappings;
-
-  } catch (error) {
-    console.error(`Error calling Gemini API for ${fieldName} normalization:`, error);
-    // Fallback: return an empty mapping so the default values are used, consistent with original behavior.
-    return {};
-  }
+  // As requested, this function now performs a simple 1-to-1 mapping
+  // without calling the Gemini API to avoid rate limiting.
+  const oneToOneMapping: Record<string, string> = {};
+  rawValues.forEach(value => {
+    oneToOneMapping[value] = value;
+  });
+  return oneToOneMapping;
 }
 
 
 /**
- * Uses Gemini to generate relevant keywords from ticket descriptions, filtering out PII.
+ * Generates relevant keywords from ticket descriptions using simple text parsing.
  */
 export async function generateKeywords(ticketDescriptions: string[], category: string): Promise<{ word: string; value: number }[]> {
-  const prompt = `
-        Analyze the following IT support ticket descriptions for the category "${category}".
-        Identify up to 30 of the most common and relevant technical keywords or short phrases (1-3 words).
-
-        Ticket Descriptions Sample:
-        ${ticketDescriptions.map(d => `- ${d}`).join('\n')}
-    `;
-
-    const systemInstruction = `
-        You are an expert data analyst specializing in IT support tickets. Your primary goal is to extract purely technical keywords for a word cloud, which will be used by engineers to spot trends.
-        Follow these instructions with extreme precision:
-        1.  Focus exclusively on technical nouns, software names (e.g., 'Salesforce', 'VPN'), hardware models, specific error codes (e.g., 'Error 503'), and technical action phrases (e.g., 'data migration', 'permission denied').
-        2.  AGGRESSIVELY IGNORE AND FILTER OUT all non-technical terms. This includes:
-            -   All personally identifiable information (PII): names (John, Jane Doe), emails, phone numbers, usernames, company names.
-            -   Generic stop words: 'the', 'is', 'a', 'it', 'and', 'to', 'for'.
-            -   Common problem descriptions: 'issue', 'problem', 'error', 'not working', 'failed', 'unable'.
-            -   Words related to urgency or sentiment: 'urgent', 'ASAP', 'please', 'help', 'frustrated', 'important'.
-        3.  EFFECTIVELY CONSOLIDATE SYNONYMS and related concepts into a single, standardized technical term. For example, "can't connect," "connection failed," and "disconnecting" should be grouped under "Connection Issue." "Login failed" and "password error" should be grouped under "Authentication Error."
-        4.  The final output must be a JSON array of objects. Each object must have a "word" (string) and "value" (a number representing its frequency or importance) key.
-        5.  The list MUST be sorted by value in descending order.
-        6.  Return ONLY the JSON array. Do not include any other text, markdown formatting, or explanations.
-    `;
-
-  const responseSchema = {
-    type: Type.ARRAY,
-    items: {
-      type: Type.OBJECT,
-      properties: {
-        word: { type: Type.STRING, description: 'The extracted keyword or phrase.' },
-        value: { type: Type.INTEGER, description: 'The calculated frequency or importance score.' },
-      },
-      required: ['word', 'value'],
-    },
-  };
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: responseSchema,
-      },
-    });
-
-    const jsonString = response.text.trim();
-    const keywords = JSON.parse(jsonString);
-    if (Array.isArray(keywords)) {
-        return keywords.slice(0, 30);
-    }
-  } catch (error) {
-    console.error('Error calling Gemini API for keyword generation:', error);
-    // Fall through to fallback
-  }
-
-  // Fallback to simple text parsing if API fails or returns invalid format
+  // Using simple text parsing as requested to avoid Gemini API calls.
   const stopWords = new Set([
-    'a', 'about', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'was', 'what', 'when', 'where', 'who', 'will', 'with', 'the', 'my', 'issue', 'problem', 'error', 'not', 'working', 'cannot', 'unable', 'access'
+    'a', 'about', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'was', 'what', 'when', 'where', 'who', 'will', 'with', 'the', 'my', 'issue', 'problem', 'error', 'not', 'working', 'cannot', 'unable', 'access', 'please', 'help'
   ]);
 
   const words = ticketDescriptions
@@ -312,56 +172,10 @@ export async function generateKeywords(ticketDescriptions: string[], category: s
 }
 
 /**
- * Uses Gemini to get an estimated complexity score for a ticket.
+ * Uses a heuristic to get an estimated complexity score for a ticket.
  */
 export async function getComplexityScore(description: string): Promise<number> {
-    const prompt = `
-        Analyze the following IT support ticket description and estimate its technical complexity on a scale of 1 to 10.
-        A score of 1 is a trivial task (e.g., a simple password reset).
-        A score of 10 is a highly complex task requiring deep expertise (e.g., a multi-system integration failure, debugging a core service outage).
-        
-        Consider factors like:
-        - The number of systems or technologies mentioned.
-        - The specificity of the error message.
-        - The likely need for investigation versus a known procedure.
-        - The potential impact described.
-
-        Description: "${description}"
-    `;
-
-    const responseSchema = {
-        type: Type.OBJECT,
-        properties: {
-            complexity: { 
-                type: Type.INTEGER, 
-                description: 'An integer from 1 to 10 representing the estimated complexity.' 
-            },
-        },
-        required: ['complexity'],
-    };
-
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: responseSchema,
-            },
-        });
-        
-        const jsonString = response.text.trim();
-        const result = JSON.parse(jsonString);
-        
-        if (typeof result.complexity === 'number' && result.complexity >= 1 && result.complexity <= 10) {
-            return result.complexity;
-        }
-        
-    } catch (error) {
-        console.error("Error getting complexity score from Gemini:", error);
-    }
-    
-    // Fallback to a simple heuristic if API fails
+    // Using a simple length-based heuristic as requested to avoid Gemini API calls.
     const len = description.length;
     if (len < 50) return 2;
     if (len < 150) return 4;
