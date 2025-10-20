@@ -13,11 +13,10 @@ const REQUIRED_FIELDS: Record<string, { label: string, description: string, crit
   category: { label: "Category", description: "The type of issue (e.g., 'Subcategory')." },
   request_status: { label: "Request Status", description: "Current state of the ticket (e.g., 'Request Status')." },
   technician: { label: "Technician Name", description: "Name of the assigned support person." },
-  created_time: { label: "Created Time", description: "When the ticket was created." },
-  due_by_time: { label: "Due By Time", description: "The final SLA deadline for ticket resolution." },
+  created_time: { label: "Created Time", description: "When the ticket was created.", critical: true },
+  due_by_time: { label: "Due By Time", description: "The final SLA deadline for ticket resolution.", critical: true },
   responded_time: { label: "Responded Time", description: "When the technician responded." },
   request_type: { label: "Request Type", description: "The type of request (e.g., 'Fix It')." },
-  priority: { label: "Priority", description: "The urgency of the ticket (e.g., High, Low)." },
   solution_text: { label: "Solution Text", description: "The resolution steps for the ticket (optional)." },
 };
 
@@ -195,7 +194,12 @@ const KnowledgeBaseView: React.FC = () => {
     };
     
     const handleProceedToPriorityCleaning = () => {
-        setCurrentStep(4);
+        if (rawPriorityCounts && Object.keys(rawPriorityCounts).length > 0) {
+            setCurrentStep(4);
+        } else {
+            // If there are no priorities to clean, skip to the finalization step.
+            handleApplyCleaning();
+        }
     };
 
     const handleApplyCleaning = async () => {
@@ -388,7 +392,7 @@ const KnowledgeBaseView: React.FC = () => {
                         </button>
                         <button
                             onClick={handleConfirmAndAnalyze}
-                            disabled={!currentMapping.problem_description || !currentMapping.ticket_no || isUploading}
+                            disabled={!currentMapping.problem_description || !currentMapping.ticket_no || !currentMapping.created_time || !currentMapping.due_by_time || isUploading}
                             className="px-6 py-2 bg-light-accent text-white font-bold rounded-lg hover:bg-light-accent-hover transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {isUploading ? 'Analyzing Data...' : `Confirm & Analyze ${mappingData.rowCount.toLocaleString()} Rows`}

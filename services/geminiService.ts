@@ -56,7 +56,7 @@ export async function getAiSuggestion(
  * Uses Gemini to suggest a mapping from user CSV headers to required fields.
  */
 export async function getMappingSuggestion(userHeaders: string[]): Promise<Record<string, string | null>> {
-    const requiredFields = ['ticket_no', 'problem_description', 'category', 'priority', 'solution_text', 'technician', 'request_status', 'due_by_time', 'created_time', 'responded_time', 'request_type'];
+    const requiredFields = ['ticket_no', 'problem_description', 'category', 'solution_text', 'technician', 'request_status', 'due_by_time', 'created_time', 'responded_time', 'request_type'];
     
     const prompt = `
         Analyze the following list of CSV headers and map them to a predefined set of required fields.
@@ -83,7 +83,6 @@ export async function getMappingSuggestion(userHeaders: string[]): Promise<Recor
             ticket_no: { type: Type.STRING, nullable: true, description: "The header for a ticket ID. Null if not found." },
             problem_description: { type: Type.STRING, nullable: true, description: "The header for the main issue description. Null if not found." },
             category: { type: Type.STRING, nullable: true, description: "The header for the issue category. Null if not found." },
-            priority: { type: Type.STRING, nullable: true, description: "The header for the issue priority. Null if not found." },
             solution_text: { type: Type.STRING, nullable: true, description: "The header for the ticket's solution. Null if not found." },
             technician: { type: Type.STRING, nullable: true, description: "The header for the assigned technician's name. Null if not found." },
             request_status: { type: Type.STRING, nullable: true, description: "The header for the ticket's current status. Null if not found." },

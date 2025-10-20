@@ -67,5 +67,5 @@ export const DEFAULT_TICKET_CATEGORIES = [
 ];
 
 export const DEFAULT_TICKET_PRIORITIES = [
-    'Low', 'Medium', 'High', 'Critical'
+    'p1', 'p2', 'p3'
 ];

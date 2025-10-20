@@ -235,11 +235,11 @@ export const createNewTicket = (description: string, predictedCategory: string, 
             }
         }
 
-        if (predictedPriority === 'High' || predictedPriority === 'Critical') {
+        if (predictedPriority === 'High' || predictedPriority === 'Critical' || predictedPriority === 'p1') {
             const newTicket: SlaBreachTicket = {
                 ticket_no: `LIVE-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-                priority: predictedPriority as 'High' | 'Critical',
-                timeToBreach: predictedPriority === 'Critical' ? '59m' : '3h 59m'
+                priority: 'High', // Keep High/Critical for display purposes, but logic could use p1
+                timeToBreach: predictedPriority === 'Critical' || predictedPriority === 'p1' ? '59m' : '3h 59m'
             };
             liveSlaTickets.unshift(newTicket);
             socketService.emitNewTicket(newTicket);
@@ -769,17 +769,50 @@ export const uploadKnowledgeBase = async (
     }
 };
 
+const calculatePriorityFromSLA = (createdTimeStr?: string, dueTimeStr?: string): string => {
+    // p3 is the default/lowest priority
+    const defaultPriority = 'p3';
+
+    if (!createdTimeStr || !dueTimeStr) {
+        return defaultPriority;
+    }
+    const created = new Date(createdTimeStr);
+    const due = new Date(dueTimeStr);
+
+    if (isNaN(created.getTime()) || isNaN(due.getTime())) {
+        return defaultPriority; // Invalid date format
+    }
+
+    const diffMs = due.getTime() - created.getTime();
+
+    // If it's already past due or due within an hour, it's highest priority
+    if (diffMs <= (60 * 60 * 1000)) {
+        return 'p1';
+    }
+    
+    const diffHours = diffMs / (1000 * 60 * 60);
+
+    if (diffHours <= 8) {
+        return 'p1';
+    } else if (diffHours <= 24) {
+        return 'p2';
+    } else {
+        return 'p3';
+    }
+};
+
 export const finalizeTicketData = (
     finalCategoryMapping: Record<string, string>,
     finalPriorityMapping: Record<string, string>
 ): Promise<{ cleanedRowCount: number }> => {
     return new Promise(async (resolve, reject) => {
         uploadedTickets = rawParsedTickets.map((rawTicket, index): SimilarTicket => {
+            const calculatedPriority = calculatePriorityFromSLA(rawTicket.created_time, rawTicket.due_by_time);
             return {
                 ticket_no: rawTicket.ticket_no || `UPL-${index}`,
                 problem_description: rawTicket.problem_description,
                 category: finalCategoryMapping[rawTicket.category] || 'Uncategorized',
-                priority: finalPriorityMapping[rawTicket.priority] || 'Medium',
+                priority: calculatedPriority,
                 solution_text: rawTicket.solution_text,
                 technician: rawTicket.technician,
                 request_status: rawTicket.request_status,
@@ -906,7 +939,7 @@ export const getUserFrustrationData = (): Promise<SentimentData> => {
         setTimeout(() => {
             if (isModelTrained && uploadedTickets.length >= 8) {
                 const frustrationKeywords = ['urgent', 'asap', 'critical', 'down', 'immediately', 'frustrated', 'angry', 'unacceptable', 'blocker'];
-                const priorityWeight: Record<string, number> = { 'Low': 0.1, 'Medium': 0.3, 'High': 0.6, 'Critical': 1.0 };
+                const priorityWeight: Record<string, number> = { 'p3': 0.1, 'p2': 0.5, 'p1': 1.0 };
                 
                 const sentimentScores: number[] = [];
                 const chunkSize = Math.floor(uploadedTickets.length / 8);
@@ -920,7 +953,7 @@ export const getUserFrustrationData = (): Promise<SentimentData> => {
             
                     let totalScore = 0;
                     chunk.forEach(ticket => {
-                        let score = priorityWeight[ticket.priority || 'Medium'] || 0.3;
+                        let score = priorityWeight[ticket.priority || 'p3'] || 0.1;
                         const description = ticket.problem_description.toLowerCase();
                         frustrationKeywords.forEach(keyword => {
                             if (description.includes(keyword)) {
@@ -1020,7 +1053,7 @@ export const getSlaBreachTickets = (): Promise<SlaBreachTicket[]> => {
             let baseTickets: SlaBreachTicket[] = [];
             if (isModelTrained) {
                 const highPriorityTickets = uploadedTickets.filter(
-                    t => t.priority === 'High' || t.priority === 'Critical'
+                    t => t.priority === 'p1'
                 );
                 
                 const shuffled = highPriorityTickets.sort(() => 0.5 - Math.random());
@@ -1030,7 +1063,7 @@ export const getSlaBreachTickets = (): Promise<SlaBreachTicket[]> => {
                 
                 baseTickets = selectedTickets.map(ticket => ({
                     ticket_no: ticket.ticket_no,
-                    priority: ticket.priority as 'High' | 'Critical',
+                    priority: 'Critical',
                     timeToBreach: breachTimes[Math.floor(Math.random() * breachTimes.length)],
                 }));
             } else {
@@ -1069,24 +1102,24 @@ export const getSlaRiskTickets = async (): Promise<SlaRiskTicket[]> => {
     // Sort by soonest due date to prioritize analysis
     ticketsWithTime.sort((a, b) => a!.diffMs - b!.diffMs);
 
-    // Get complexity scores for the top 20 most urgent tickets
+    // Get complexity scores for the top 20 most urgent tickets, sequentially to avoid rate limits.
     const urgentTickets = ticketsWithTime.slice(0, 20);
-    const complexityPromises = urgentTickets.map(async item => {
-        if (!item) return;
+    for (const item of urgentTickets) {
+        if (!item) continue;
         const { ticket } = item;
         if (complexityCache.has(ticket.ticket_no)) {
-            return; // Already cached
+            continue; // Already cached
         }
         try {
             const score = await getComplexityScore(ticket.problem_description);
             complexityCache.set(ticket.ticket_no, score);
+            // Add a small delay between API calls to respect rate limits.
+            await new Promise(resolve => setTimeout(resolve, 300));
         } catch (error) {
             console.error(`Failed to get complexity for ${ticket.ticket_no}`, error);
             complexityCache.set(ticket.ticket_no, 5); // Default on error
         }
-    });
-
-    await Promise.all(complexityPromises);
+    }
 
     const riskTickets = ticketsWithTime.map(item => {
         if (!item) return null;
