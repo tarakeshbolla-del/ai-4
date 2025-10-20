@@ -1,4 +1,3 @@
-
 import React from 'react';
 import LoadingSpinner from '../../common/LoadingSpinner';
 
@@ -25,12 +24,12 @@ const WordCloud: React.FC<WordCloudProps> = ({ data, isLoading }) => {
   };
   
   const colors = [
-      'text-cyan-500', 'text-sky-500', 'text-blue-500', 
-      'dark:text-cyan-400', 'dark:text-sky-400', 'dark:text-blue-400'
+      'text-sky-500', 'text-cyan-500', 'text-blue-500', 'text-indigo-500', 'text-teal-500',
+      'dark:text-sky-400', 'dark:text-cyan-400', 'dark:text-blue-400', 'dark:text-indigo-400', 'dark:text-teal-400'
   ];
 
   return (
-    <div className="flex flex-wrap justify-center items-center gap-2 h-full">
+    <div className="flex flex-wrap justify-center items-center gap-x-3 gap-y-1 h-full">
       {data.sort((a,b) => b.value - a.value).map((item, index) => (
         <span
           key={item.word}

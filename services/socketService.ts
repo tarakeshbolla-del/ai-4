@@ -1,6 +1,6 @@
 
 import type { Kpis, HeatmapDataPoint, SlaBreachTicket } from '../types';
-import { TICKET_CATEGORIES, TICKET_PRIORITIES } from '../constants';
+// Fix: Removed unused and incorrect imports for TICKET_CATEGORIES and TICKET_PRIORITIES.
 import { getTrainingState } from './api';
 
 type EventCallback = (data: any) => void;
@@ -59,8 +59,13 @@ class MockSocket {
     console.log('[Socket] Emitted new_sla_ticket', ticket);
   }
 
+  public emitHeatmapUpdate(update: HeatmapDataPoint) {
+    this.emit('heatmap_update', update);
+    console.log('[Socket] Emitted live heatmap_update', update);
+  }
+
   private simulateEvents() {
-    const { isModelTrained, dataDistribution } = getTrainingState();
+    const { isModelTrained } = getTrainingState();
 
     // Simulate a KPI update
     const deflectionBase = isModelTrained ? 85.2 : 78;
@@ -71,28 +76,6 @@ class MockSocket {
     };
     this.emit('kpi_update', kpiUpdate);
     console.log('[Socket] Emitted kpi_update', kpiUpdate);
-
-    // Simulate a heatmap update
-    let category: string;
-    let priority: string;
-
-    if (isModelTrained && dataDistribution && dataDistribution.categories.length > 0) {
-        // Weighted random selection based on trained data distribution
-        category = getWeightedRandom(dataDistribution.categories, dataDistribution.categoryWeights) || TICKET_CATEGORIES[0];
-        priority = dataDistribution.priorities[Math.floor(Math.random() * dataDistribution.priorities.length)];
-    } else {
-        // Original random selection
-        category = TICKET_CATEGORIES[Math.floor(Math.random() * TICKET_CATEGORIES.length)];
-        priority = TICKET_PRIORITIES[Math.floor(Math.random() * TICKET_PRIORITIES.length)];
-    }
-
-    const heatmapUpdate: HeatmapDataPoint = {
-      category,
-      priority,
-      value: Math.floor(Math.random() * 5) + 1, // small increment
-    };
-    this.emit('heatmap_update', heatmapUpdate);
-    console.log('[Socket] Emitted heatmap_update', heatmapUpdate);
   }
 }
 

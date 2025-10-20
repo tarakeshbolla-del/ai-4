@@ -1,6 +1,4 @@
-
 import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import SubmissionForm from './SubmissionForm';
 import AnalysisResult from './AnalysisResult';
 import LoadingSpinner from '../common/LoadingSpinner';
@@ -14,7 +12,6 @@ const UserView: React.FC = () => {
   const [viewState, setViewState] = useState<ViewState>('form');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResultData | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState('');
-  const navigate = useNavigate();
   
   // State to track the user's feedback choice on the analysis result.
   const [feedbackGiven, setFeedbackGiven] = useState<'positive' | 'negative' | null>(null);
@@ -113,7 +110,7 @@ const UserView: React.FC = () => {
         );
       case 'confirmation':
         return (
-             <div className="text-center p-8 bg-green-50 dark:bg-green-900/20 rounded-lg">
+             <div className="text-center p-8 bg-green-500/10 rounded-lg">
                 <p className="text-2xl font-semibold text-green-700 dark:text-green-300">
                   {feedbackMessage}
                 </p>
@@ -124,7 +121,7 @@ const UserView: React.FC = () => {
                 </p>
                 <button
                   onClick={resetView}
-                  className="mt-6 px-6 py-2 bg-light-accent text-white font-bold rounded-lg hover:opacity-90 transition-opacity"
+                  className="mt-6 px-6 py-2 bg-light-accent text-white font-bold rounded-lg hover:bg-light-accent-hover transition-all"
                 >
                   Create a New Ticket
                 </button>
@@ -149,18 +146,10 @@ const UserView: React.FC = () => {
 
   return (
     <>
-      <Header title="PredictiveOps" />
-      <main className="container mx-auto p-4 md:p-8 max-w-4xl">
-        <div className="bg-white dark:bg-gray-800/50 p-6 md:p-8 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+      <Header title="PredictiveOps" showAdminLink={true} />
+      <main className="container mx-auto p-4 sm:p-6 md:p-8 max-w-4xl">
+        <div className="bg-light-card dark:bg-dark-card p-6 md:p-8 rounded-xl shadow-md border border-light-border dark:border-dark-border">
            {renderContent()}
-        </div>
-        <div className="mt-4 text-center">
-            <button
-              onClick={() => navigate('/admin')}
-              className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-            >
-              (Dev) Go to Admin Dashboard
-            </button>
         </div>
       </main>
     </>

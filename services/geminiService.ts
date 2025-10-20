@@ -56,7 +56,7 @@ export async function getAiSuggestion(
  * Uses Gemini to suggest a mapping from user CSV headers to required fields.
  */
 export async function getMappingSuggestion(userHeaders: string[]): Promise<Record<string, string | null>> {
-    const requiredFields = ['ticket_no', 'problem_description', 'category', 'priority', 'solution_text'];
+    const requiredFields = ['ticket_no', 'problem_description', 'category', 'priority', 'solution_text', 'technician', 'request_status', 'due_by_time', 'created_time', 'responded_time', 'request_type'];
     
     const prompt = `
         Analyze the following list of CSV headers and map them to a predefined set of required fields.
@@ -68,24 +68,30 @@ export async function getMappingSuggestion(userHeaders: string[]): Promise<Recor
         Instructions:
         1. For each required field, find the best matching header from the user's CSV list.
         2. The 'problem_description' field is the most critical. It usually contains long text about the user's issue. Common names are 'description', 'subject', 'summary', 'issue'.
-        3. 'category' refers to the type of issue (e.g., 'Software', 'Hardware').
-        4. 'priority' refers to the urgency (e.g., 'High', 'Low').
-        5. 'ticket_no' is the unique identifier for the ticket.
-        6. 'solution_text' is the resolution for the ticket.
-        7. If a reasonable match for a field cannot be found, the value for that field should be null.
-        8. Return the mapping as a JSON object.
+        3. 'request_status' is the current state of the ticket (e.g., 'Resolved', 'On-hold'). Match to headers like 'status' or 'request status'.
+        4. 'due_by_time' is the final deadline for the ticket. Match to headers like 'DueBy Time' or 'SLA'.
+        5. 'created_time' is when the ticket was created. Match to 'Created Time'.
+        6. 'responded_time' is when a technician responded. Match to 'Responded Date'.
+        7. 'technician' is the name of the assigned support person.
+        8. If a reasonable match for a field cannot be found, the value for that field should be null.
+        9. Return the mapping as a JSON object.
     `;
 
     const responseSchema = {
         type: Type.OBJECT,
         properties: {
-            ticket_no: { type: Type.STRING, description: "The header from the user's CSV that maps to a ticket ID. Null if not found." },
-            problem_description: { type: Type.STRING, description: "The header for the main issue description. Null if not found." },
-            category: { type: Type.STRING, description: "The header for the issue category. Null if not found." },
-            priority: { type: Type.STRING, description: "The header for the issue priority. Null if not found." },
-            solution_text: { type: Type.STRING, description: "The header for the ticket's solution. Null if not found." },
+            ticket_no: { type: Type.STRING, nullable: true, description: "The header for a ticket ID. Null if not found." },
+            problem_description: { type: Type.STRING, nullable: true, description: "The header for the main issue description. Null if not found." },
+            category: { type: Type.STRING, nullable: true, description: "The header for the issue category. Null if not found." },
+            priority: { type: Type.STRING, nullable: true, description: "The header for the issue priority. Null if not found." },
+            solution_text: { type: Type.STRING, nullable: true, description: "The header for the ticket's solution. Null if not found." },
+            technician: { type: Type.STRING, nullable: true, description: "The header for the assigned technician's name. Null if not found." },
+            request_status: { type: Type.STRING, nullable: true, description: "The header for the ticket's current status. Null if not found." },
+            due_by_time: { type: Type.STRING, nullable: true, description: "The header for the ticket's SLA due date/time. Null if not found." },
+            created_time: { type: Type.STRING, nullable: true, description: "The header for when the ticket was created. Null if not found." },
+            responded_time: { type: Type.STRING, nullable: true, description: "The header for when a technician responded. Null if not found." },
+            request_type: { type: Type.STRING, nullable: true, description: "The header for the type of request. Null if not found." },
         },
-        required: requiredFields, 
     };
     
     try {
@@ -121,10 +127,16 @@ export async function getMappingSuggestion(userHeaders: string[]): Promise<Recor
                 problem_description: ['problem', 'description', 'desc', 'summary', 'subject', 'issue', 'text'],
                 category: ['category', 'module', 'area'],
                 priority: ['priority', 'urgency', 'level'],
-                solution_text: ['solution', 'resolution', 'fix']
+                solution_text: ['solution', 'resolution', 'fix'],
+                technician: ['technician', 'agent', 'owner', 'assigned'],
+                request_status: ['status'],
+                due_by_time: ['due', 'sla'],
+                created_time: ['created'],
+                responded_time: ['responded'],
+                request_type: ['type'],
             };
             let foundHeader: string | null = null;
-            for(const synonym of fieldSynonyms[field]) {
+            for(const synonym of fieldSynonyms[field] || []) {
                 const index = lowerUserHeaders.findIndex(h => h.includes(synonym));
                 if (index !== -1) {
                     foundHeader = userHeaders[index];
@@ -285,4 +297,62 @@ export async function generateKeywords(ticketDescriptions: string[], category: s
     .sort(([, a], [, b]) => b - a)
     .slice(0, 30)
     .map(([word, value]) => ({ word, value }));
+}
+
+/**
+ * Uses Gemini to get an estimated complexity score for a ticket.
+ */
+export async function getComplexityScore(description: string): Promise<number> {
+    const prompt = `
+        Analyze the following IT support ticket description and estimate its technical complexity on a scale of 1 to 10.
+        A score of 1 is a trivial task (e.g., a simple password reset).
+        A score of 10 is a highly complex task requiring deep expertise (e.g., a multi-system integration failure, debugging a core service outage).
+        
+        Consider factors like:
+        - The number of systems or technologies mentioned.
+        - The specificity of the error message.
+        - The likely need for investigation versus a known procedure.
+        - The potential impact described.
+
+        Description: "${description}"
+    `;
+
+    const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+            complexity: { 
+                type: Type.INTEGER, 
+                description: 'An integer from 1 to 10 representing the estimated complexity.' 
+            },
+        },
+        required: ['complexity'],
+    };
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: responseSchema,
+            },
+        });
+        
+        const jsonString = response.text.trim();
+        const result = JSON.parse(jsonString);
+        
+        if (typeof result.complexity === 'number' && result.complexity >= 1 && result.complexity <= 10) {
+            return result.complexity;
+        }
+        
+    } catch (error) {
+        console.error("Error getting complexity score from Gemini:", error);
+    }
+    
+    // Fallback to a simple heuristic if API fails
+    const len = description.length;
+    if (len < 50) return 2;
+    if (len < 150) return 4;
+    if (len < 300) return 6;
+    return 8;
 }

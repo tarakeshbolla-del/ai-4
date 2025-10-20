@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { TICKET_CATEGORIES, TICKET_PRIORITIES } from '../../constants';
-import { getSimilarIssues } from '../../services/api';
+import { UploadIcon } from '../../constants';
+import { getSimilarIssues, getDynamicCategories, getDynamicPriorities } from '../../services/api';
 import type { SimilarTicket } from '../../types';
 
 interface SubmissionFormProps {
@@ -31,8 +31,16 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [similarIssues, setSimilarIssues] = useState<SimilarTicket[]>([]);
   const [isFetchingSimilar, setIsFetchingSimilar] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [priorities, setPriorities] = useState<string[]>([]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Load dynamic categories and priorities for the dropdowns
+    getDynamicCategories().then(cats => setCategories(cats.sort()));
+    getDynamicPriorities().then(pris => setPriorities(pris));
+  }, []);
 
   useEffect(() => {
     if (description.trim().length < 15) {
@@ -104,7 +112,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div 
-        className={`p-6 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors ${isDragging ? 'border-light-accent dark:border-dark-accent bg-blue-50 dark:bg-blue-900/20' : 'border-gray-300 dark:border-gray-600 hover:border-light-accent dark:hover:border-dark-accent'}`}
+        className={`p-6 border-2 border-dashed rounded-lg text-center cursor-pointer transition-all ${isDragging ? 'border-light-accent dark:border-dark-accent bg-light-accent/10 dark:bg-dark-accent/10 scale-105' : 'border-gray-300 dark:border-gray-600 hover:border-light-accent dark:hover:border-dark-accent'}`}
         onClick={() => fileInputRef.current?.click()}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -115,52 +123,63 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
           type="file"
           ref={fileInputRef}
           className="hidden"
-          accept="image/*"
+          accept="image/*,.png,.jpg,.jpeg,.gif"
           onChange={(e) => handleFileChange(e.target.files)}
         />
-        {screenshot ? (
-          <p className="text-green-600 dark:text-green-400">✅ {screenshot.name} selected</p>
-        ) : (
-          <p>Drag & drop a screenshot here, or click to select</p>
-        )}
+        <div className="flex flex-col items-center justify-center space-y-2 text-gray-500 dark:text-gray-400">
+            <UploadIcon className="w-10 h-10" />
+            {screenshot ? (
+                <p className="text-green-600 dark:text-green-400 font-semibold">✅ {screenshot.name} selected</p>
+            ) : (
+                <p><span className="font-semibold text-light-accent dark:text-dark-accent">Click to upload</span> or drag and drop a screenshot</p>
+            )}
+             <p className="text-xs">PNG, JPG, GIF up to 10MB</p>
+        </div>
       </div>
 
-      <div className="text-center text-gray-500 dark:text-gray-400 font-semibold">OR</div>
+      <div className="relative">
+          <div className="absolute inset-0 flex items-center" aria-hidden="true">
+              <div className="w-full border-t border-gray-300 dark:border-gray-600" />
+          </div>
+          <div className="relative flex justify-center">
+              <span className="bg-light-card dark:bg-dark-card px-2 text-sm text-gray-500 dark:text-gray-400">OR</span>
+          </div>
+      </div>
 
       <div>
-        <label htmlFor="description" className="block text-sm font-medium mb-1">
+        <label htmlFor="description" className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
           Describe your issue
         </label>
         <textarea
           id="description"
           rows={6}
-          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent focus:ring-2 focus:ring-light-accent dark:focus:ring-dark-accent focus:border-transparent"
+          className="w-full p-2 border rounded-md bg-slate-50 dark:bg-gray-800 border-slate-300 dark:border-gray-700 focus:ring-2 focus:ring-light-accent dark:focus:ring-dark-accent focus:border-transparent transition"
           value={description}
           onChange={(e) => onDescriptionChange(e.target.value)}
           placeholder="Please provide as much detail as possible..."
         />
       </div>
 
-      {isFetchingSimilar && <p className="text-sm text-gray-500">Searching for similar issues...</p>}
+      {isFetchingSimilar && <p className="text-sm text-center text-gray-500 dark:text-gray-400">Searching for similar issues...</p>}
       
       {!isFetchingSimilar && searchTriggered && similarIssues.length === 0 && (
-        <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-            <p className="text-sm text-center text-gray-500 dark:text-gray-400">No previous tickets are similar.</p>
+        <div className="p-3 bg-slate-50 dark:bg-gray-800/50 rounded-lg">
+            <p className="text-sm text-center text-gray-500 dark:text-gray-400">No previous tickets seem to match your description.</p>
         </div>
       )}
 
       {similarIssues.length > 0 && (
-        <div className="space-y-2 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-            <h4 className="font-semibold text-sm">Similar Solved Issues:</h4>
-            <ul className="text-sm space-y-1">
+        <div className="space-y-3 p-4 bg-slate-50 dark:bg-gray-800/50 rounded-lg">
+            <h4 className="font-semibold text-sm text-gray-800 dark:text-gray-200">Similar Solved Issues:</h4>
+            <ul className="text-sm space-y-2">
                 {similarIssues.map(issue => (
                     <li key={issue.ticket_no}>
                         <button
                           type="button"
                           onClick={() => onSimilarIssueClick(issue)}
-                          className="w-full text-left p-2 rounded-md transition-colors text-light-text dark:text-dark-text hover:bg-light-accent/10 dark:hover:bg-dark-accent/20"
+                          className="w-full text-left p-3 rounded-md transition-all text-light-text dark:text-dark-text bg-white dark:bg-gray-900/50 hover:bg-light-accent/10 dark:hover:bg-dark-accent/10 border border-light-border dark:border-dark-border hover:border-light-accent dark:hover:border-dark-accent"
                         >
-                          <span className="font-medium hover:underline">{issue.problem_description.substring(0, 80)}...</span>
+                          <span className="font-medium">{issue.problem_description.substring(0, 80)}...</span>
                         </button>
                     </li>
                 ))}
@@ -170,31 +189,31 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <label htmlFor="category" className="block text-sm font-medium mb-1">
+          <label htmlFor="category" className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
             Module/Category (Optional)
           </label>
           <select
             id="category"
-            className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent"
+            className="w-full p-2 border rounded-md bg-slate-50 dark:bg-gray-800 border-slate-300 dark:border-gray-700 focus:ring-2 focus:ring-light-accent dark:focus:ring-dark-accent focus:border-transparent transition"
             value={category}
             onChange={(e) => onCategoryChange(e.target.value)}
           >
             <option value="">AI will predict</option>
-            {TICKET_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
           </select>
         </div>
         <div>
-          <label htmlFor="priority" className="block text-sm font-medium mb-1">
+          <label htmlFor="priority" className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
             Priority (Optional)
           </label>
           <select
             id="priority"
-            className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-transparent"
+            className="w-full p-2 border rounded-md bg-slate-50 dark:bg-gray-800 border-slate-300 dark:border-gray-700 focus:ring-2 focus:ring-light-accent dark:focus:ring-dark-accent focus:border-transparent transition"
             value={priority}
             onChange={(e) => onPriorityChange(e.target.value)}
           >
             <option value="">AI will predict</option>
-            {TICKET_PRIORITIES.map(pri => <option key={pri} value={pri}>{pri}</option>)}
+            {priorities.map(pri => <option key={pri} value={pri}>{pri}</option>)}
           </select>
         </div>
       </div>
@@ -202,7 +221,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
       <button
         type="submit"
         disabled={!description && !screenshot}
-        className="w-full py-3 px-4 bg-light-accent text-white font-bold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full py-3 px-4 bg-gradient-to-r from-sky-500 to-cyan-500 text-white font-bold rounded-lg hover:shadow-lg hover:from-sky-600 hover:to-cyan-600 transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:from-gray-400 disabled:to-gray-400 disabled:shadow-none disabled:transform-none"
       >
         Analyze Issue
       </button>

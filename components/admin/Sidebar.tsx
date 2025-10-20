@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { ADMIN_NAV_LINKS, LogoutIcon } from '../../constants';
@@ -11,9 +10,11 @@ const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="w-64 bg-white dark:bg-gray-800/50 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 p-4 flex flex-col">
-      <div className="text-2xl font-bold text-light-accent dark:text-dark-accent mb-8">
-        PredictiveOps
+    <aside className="w-64 bg-light-card dark:bg-dark-card flex-shrink-0 border-r border-light-border dark:border-dark-border p-4 flex flex-col">
+      <div className="text-2xl font-bold mb-8 h-[36px] flex items-center">
+        <span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-500 to-cyan-400">
+            PredictiveOps
+        </span>
       </div>
       <nav className="flex-1">
         <ul>
@@ -22,15 +23,15 @@ const Sidebar: React.FC = () => {
               <NavLink
                 to={link.href}
                 className={({ isActive }) =>
-                  `flex items-center p-3 my-2 rounded-lg transition-colors ${
+                  `flex items-center p-3 my-1 rounded-lg transition-colors ${
                     isActive
-                      ? 'bg-light-accent/10 text-light-accent dark:bg-dark-accent/20 dark:text-dark-accent'
-                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                      ? 'bg-light-accent/10 text-light-accent dark:bg-dark-accent/10 dark:text-dark-accent font-semibold'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-800/60'
                   }`
                 }
               >
                 <link.icon className="w-6 h-6 mr-3" />
-                <span className="font-medium">{link.text}</span>
+                <span>{link.text}</span>
               </NavLink>
             </li>
           ))}
@@ -44,7 +45,7 @@ const Sidebar: React.FC = () => {
           <LogoutIcon className="w-6 h-6 mr-3" />
           <span className="font-medium">Logout</span>
         </button>
-        <div className="mt-2 text-center text-xs text-gray-400">
+        <div className="mt-2 text-center text-xs text-gray-400 dark:text-gray-500">
           &copy; 2025 PredictiveOps
         </div>
       </div>

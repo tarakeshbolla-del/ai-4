@@ -98,7 +98,7 @@ const DashboardView: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <KpiCard title="Ticket Deflection Rate" value={`${kpis?.deflectionRate.toFixed(1)}%`} />
         <KpiCard title="Avg. Time to Resolution" value={`${kpis?.avgTimeToResolution.toFixed(1)} hrs`} />
@@ -106,8 +106,9 @@ const DashboardView: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3 bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 min-h-[352px] flex flex-col">
-          <h3 className="text-lg font-semibold mb-4">Top Root Causes (Pareto)</h3>
+        <div className="lg:col-span-3 bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border min-h-[352px] flex flex-col">
+          <h3 className="text-lg font-semibold mb-1">Top Root Causes (Pareto)</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Click a bar to explore related keywords.</p>
           {rootCauses.length > 0 ? (
             <RootCauseFunnel data={rootCauses} onBarClick={handleBarClick} selectedCause={selectedCause} />
           ) : (
@@ -116,10 +117,13 @@ const DashboardView: React.FC = () => {
             </div>
           )}
         </div>
-        <div className="lg:col-span-2 bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 min-h-[352px] flex flex-col">
-          <h3 className="text-lg font-semibold mb-4">
-            Problem Keywords for: <span className="text-light-accent dark:text-dark-accent">{selectedCause || '...'}</span>
+        <div className="lg:col-span-2 bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border min-h-[352px] flex flex-col">
+          <h3 className="text-lg font-semibold mb-1">
+            Problem Keywords
           </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+             For: <span className="font-semibold text-light-accent dark:text-dark-accent">{selectedCause || '...'}</span>
+          </p>
            {rootCauses.length > 0 ? (
             <WordCloud data={wordCloudData} isLoading={isWordCloudLoading} />
           ) : (
@@ -130,8 +134,9 @@ const DashboardView: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800/50 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-semibold mb-4">Business Impact Heatmap</h3>
+      <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border">
+        <h3 className="text-lg font-semibold mb-1">Business Impact Heatmap</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Ticket volume by category and priority.</p>
         {heatmapData.length > 0 ? (
           <ImpactHeatmap data={heatmapData} />
         ) : (

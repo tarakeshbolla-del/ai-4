@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import type { AnalysisResultData } from '../../types';
 import ReactMarkdown from 'react-markdown';
@@ -21,13 +20,13 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onB
   const renderFeedbackSection = () => {
     if (feedbackGiven === 'positive') {
       return (
-        <div className="text-center space-y-4 pt-6 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+        <div className="text-center space-y-4 pt-6 mt-6 p-4 bg-green-500/10 rounded-lg">
           <p className="font-semibold text-green-700 dark:text-green-300">👍 Great! We're glad we could help.</p>
           <button 
               onClick={onReset}
-              className="px-6 py-2 bg-light-accent text-white font-bold rounded-lg hover:opacity-90 transition-opacity"
+              className="px-6 py-2 bg-light-accent text-white font-bold rounded-lg hover:bg-light-accent-hover transition-all"
           >
-            Create another ticket
+            Submit Another Ticket
           </button>
         </div>
       );
@@ -35,31 +34,31 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onB
 
     if (feedbackGiven === 'negative') {
       return (
-        <div className="text-center space-y-4 pt-6 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+        <div className="text-center space-y-4 pt-6 mt-6 p-4 bg-amber-500/10 rounded-lg">
           <p className="font-semibold text-amber-800 dark:text-amber-300">Thanks for the feedback. Would you like to create a support ticket?</p>
           <button 
               onClick={onCreateTicket}
               className="px-6 py-2 bg-red-500 text-white font-bold rounded-lg hover:bg-red-600 transition-colors"
           >
-            Yes, create a ticket
+            Yes, Create Ticket
           </button>
         </div>
       );
     }
 
     return (
-      <div className="text-center space-y-4 pt-6">
+      <div className="text-center space-y-4 pt-6 mt-6 border-t border-light-border dark:border-dark-border">
         <p className="font-semibold">Was this suggestion helpful?</p>
         <div className="flex justify-center space-x-4">
           <button 
               onClick={() => onFeedback('positive')}
               className="px-6 py-2 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 transition-colors"
           >
-              👍 Yes
+              👍 Yes, it helped
           </button>
           <button 
               onClick={() => onFeedback('negative')}
-              className="px-6 py-2 bg-gray-500 text-white font-bold rounded-lg hover:bg-gray-600 transition-colors"
+              className="px-6 py-2 bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 font-bold rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
           >
               👎 No
           </button>
@@ -75,9 +74,9 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onB
           {isFromSimilarIssue ? 'Solution from Knowledge Base' : 'Analysis Complete'}
         </h2>
         {!isFromSimilarIssue && (
-          <div className="flex space-x-8 text-sm">
-            <p><strong>Predicted Module:</strong> {result.predictedModule}</p>
-            <p><strong>Predicted Priority:</strong> {result.predictedPriority}</p>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm p-3 bg-slate-50 dark:bg-gray-800/50 rounded-lg border border-light-border dark:border-dark-border">
+            <p><strong>Predicted Module:</strong> <span className="font-semibold text-light-accent dark:text-dark-accent">{result.predictedModule}</span></p>
+            <p><strong>Predicted Priority:</strong> <span className="font-semibold text-light-accent dark:text-dark-accent">{result.predictedPriority}</span></p>
           </div>
         )}
       </div>
@@ -90,11 +89,13 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onB
           <>
             <ul className="space-y-3">
             {similarIssuesToShow.map((issue) => (
-                <li key={issue.ticket_no} className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <li key={issue.ticket_no} className="p-4 bg-slate-50 dark:bg-gray-800/50 rounded-lg border border-light-border dark:border-dark-border">
                 <p className="font-medium text-sm">{issue.problem_description}</p>
                 <details className="mt-2 text-sm" open={isFromSimilarIssue}>
-                    <summary className="cursor-pointer text-light-accent dark:text-dark-accent font-semibold">Show Solution</summary>
-                    <p className="mt-1 p-2 bg-white dark:bg-gray-800 rounded">{issue.solution_text}</p>
+                    <summary className="cursor-pointer text-light-accent dark:text-dark-accent font-semibold hover:underline">Show Solution</summary>
+                    <div className="mt-2 pt-2 border-t border-light-border dark:border-dark-border prose prose-sm dark:prose-invert max-w-none">
+                        <p>{issue.solution_text}</p>
+                    </div>
                 </details>
                 </li>
             ))}
@@ -111,8 +112,8 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onB
             )}
           </>
         ) : (
-            <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="p-4 bg-slate-50 dark:bg-gray-800/50 rounded-lg border border-light-border dark:border-dark-border">
+                <p className="text-sm text-center text-gray-500 dark:text-gray-400">
                     No previous tickets are similar to your issue.
                 </p>
             </div>
@@ -122,14 +123,14 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ result, onFeedback, onB
       {!isFromSimilarIssue && (
         <div className="space-y-4">
           <h3 className="text-lg font-semibold border-b pb-2 border-gray-300 dark:border-gray-600">🤖 AI-Generated Suggestion</h3>
-          <div className="prose prose-sm dark:prose-invert max-w-none bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+          <div className="prose prose-sm dark:prose-invert max-w-none bg-slate-50 dark:bg-gray-800/50 p-4 rounded-lg border border-light-border dark:border-dark-border">
               <ReactMarkdown>{result.aiSuggestion}</ReactMarkdown>
           </div>
         </div>
       )}
       
       {isFromSimilarIssue ? (
-        <div className="text-center pt-6">
+        <div className="text-center pt-6 mt-6 border-t border-light-border dark:border-dark-border">
             <button 
                 onClick={onBack}
                 className="px-6 py-2 bg-gray-500 text-white font-bold rounded-lg hover:bg-gray-600 transition-colors"

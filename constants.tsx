@@ -42,6 +42,18 @@ export const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
+export const UploadIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+    </svg>
+);
+
+export const AdminIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.286zm0 13.036h.008v.008h-.008v-.008Z" />
+    </svg>
+);
+
 
 export const ADMIN_NAV_LINKS = [
     { href: "/admin/dashboard", text: "Dashboard", icon: DashboardIcon },
@@ -50,10 +62,10 @@ export const ADMIN_NAV_LINKS = [
     { href: "/admin/settings", text: "Settings", icon: SettingsIcon },
 ];
 
-export const TICKET_CATEGORIES = [
+export const DEFAULT_TICKET_CATEGORIES = [
     'Software', 'Hardware', 'Network', 'Account Management', 'Database'
 ];
 
-export const TICKET_PRIORITIES = [
+export const DEFAULT_TICKET_PRIORITIES = [
     'Low', 'Medium', 'High', 'Critical'
 ];

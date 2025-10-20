@@ -14,12 +14,18 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data }) => {
 
   const getColor = (value: number) => {
     const intensity = Math.min(value / maxVal, 1);
-    if (intensity < 0.1) return 'bg-cyan-100 dark:bg-cyan-900/20';
-    if (intensity < 0.3) return 'bg-cyan-200 dark:bg-cyan-800/40';
-    if (intensity < 0.6) return 'bg-cyan-400 dark:bg-cyan-600/60';
-    if (intensity < 0.8) return 'bg-cyan-500 dark:bg-cyan-500/80';
-    return 'bg-cyan-600 dark:bg-cyan-400';
+    if (value === 0) return 'bg-slate-100 dark:bg-gray-800/50';
+    if (intensity < 0.1) return 'bg-sky-100 dark:bg-sky-900/40';
+    if (intensity < 0.3) return 'bg-sky-200 dark:bg-sky-800/60';
+    if (intensity < 0.6) return 'bg-sky-300 dark:bg-sky-700/80';
+    if (intensity < 0.8) return 'bg-sky-400 dark:bg-sky-600';
+    return 'bg-sky-500 dark:bg-sky-500';
   };
+
+  const getTextColor = (value: number) => {
+      const intensity = Math.min(value / maxVal, 1);
+      return intensity > 0.6 ? 'text-white/90' : 'text-slate-800/80 dark:text-slate-100/80';
+  }
 
   // Dynamically get categories and priorities from the data
   // Fix: Replaced `new Set()` with `reduce()` to ensure correct type inference and avoid 'unknown[]' error.
@@ -66,7 +72,7 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data }) => {
                                 className={`h-12 flex items-center justify-center rounded transition-colors ${getColor(value)}`}
                                 title={`${value} tickets`}
                             >
-                                <span className="text-sm font-medium text-black/70 dark:text-white/80">{value}</span>
+                                <span className={`text-sm font-medium ${getTextColor(value)}`}>{value > 0 ? value : ''}</span>
                              </div>
                         );
                     })}

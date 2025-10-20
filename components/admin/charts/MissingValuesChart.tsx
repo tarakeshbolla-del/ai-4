@@ -11,8 +11,8 @@ interface MissingValuesChartProps {
 const MissingValuesChart: React.FC<MissingValuesChartProps> = ({ columns, rowCount }) => {
   const { theme } = useTheme();
   const colors = theme === 'light' 
-    ? { text: '#2C3E50', accent: '#f59e0b', grid: '#e5e7eb' }
-    : { text: '#E2E8F0', accent: '#facc15', grid: '#374151' };
+    ? { text: '#1F2937', accent: '#f59e0b', grid: '#F3F4F6' }
+    : { text: '#F3F4F6', accent: '#facc15', grid: '#1f2937' };
 
   const data = columns
     .map(col => ({
@@ -41,8 +41,8 @@ const MissingValuesChart: React.FC<MissingValuesChartProps> = ({ columns, rowCou
         <Tooltip
           formatter={(value) => `${value}%`}
           contentStyle={{ 
-            backgroundColor: theme === 'light' ? '#ffffff' : '#0A2540',
-            borderColor: theme === 'light' ? '#e5e7eb' : '#374151'
+            backgroundColor: theme === 'light' ? '#FFFFFF' : '#111827',
+            borderColor: theme === 'light' ? '#E5E7EB' : '#1f2937'
           }}
         />
         <Bar dataKey="Missing (%)" fill={colors.accent} />

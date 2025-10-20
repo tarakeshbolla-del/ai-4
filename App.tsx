@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useTheme } from './hooks/useTheme';
@@ -14,7 +13,7 @@ const App: React.FC = () => {
 
   return (
     <div className={`${theme} font-sans text-light-text dark:text-dark-text`}>
-      <div className="min-h-screen bg-light-bg dark:bg-dark-bg">
+      <div className="min-h-screen bg-light-bg dark:bg-dark-bg animate-fadeInUp">
         <HashRouter>
           <Routes>
             <Route path="/" element={<UserView />} />

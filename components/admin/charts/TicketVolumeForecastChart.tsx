@@ -10,8 +10,8 @@ interface TicketVolumeForecastChartProps {
 const TicketVolumeForecastChart: React.FC<TicketVolumeForecastChartProps> = ({ data }) => {
   const { theme } = useTheme();
   const colors = theme === 'light' 
-    ? { text: '#2C3E50', actual: '#0EA5E9', forecast: '#8b5cf6', grid: '#e5e7eb' }
-    : { text: '#E2E8F0', actual: '#22D3EE', forecast: '#a78bfa', grid: '#374151' };
+    ? { text: '#1F2937', actual: '#0ea5e9', forecast: '#8b5cf6', grid: '#F3F4F6' }
+    : { text: '#F3F4F6', actual: '#38bdf8', forecast: '#a78bfa', grid: '#1f2937' };
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -31,8 +31,8 @@ const TicketVolumeForecastChart: React.FC<TicketVolumeForecastChartProps> = ({ d
         <YAxis tick={{ fill: colors.text, fontSize: 12 }} />
         <Tooltip
           contentStyle={{ 
-            backgroundColor: theme === 'light' ? '#ffffff' : '#0A2540',
-            borderColor: theme === 'light' ? '#e5e7eb' : '#374151'
+            backgroundColor: theme === 'light' ? '#FFFFFF' : '#111827',
+            borderColor: theme === 'light' ? '#E5E7EB' : '#1f2937'
           }}
         />
         <Legend wrapperStyle={{ fontSize: 14 }}/>

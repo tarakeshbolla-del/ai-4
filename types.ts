@@ -1,4 +1,3 @@
-
 export interface SimilarTicket {
   ticket_no: string;
   problem_description: string;
@@ -7,6 +6,22 @@ export interface SimilarTicket {
   category?: string;
   // Fix: Add optional priority property to match data structure from CSV upload and prevent type error.
   priority?: string;
+  // New fields from user data
+  technician?: string;
+  status?: string;
+  created_time?: string;
+  responded_time?: string;
+  due_by_time?: string;
+  request_status?: string; // Mapped from 'Request Status'
+  request_type?: string;
+}
+
+export interface SlaRiskTicket {
+  ticket_no: string;
+  problem_snippet: string;
+  technician: string;
+  timeRemaining: string; // e.g. "2h 15m", "-30m" for overdue
+  riskScore: number; // 0 to 1
 }
 
 export interface AnalysisResultData {
@@ -95,4 +110,20 @@ export interface ModelAccuracyReport {
     priorityAccuracy: number;
     overallScore: number;
     notes: string[];
+}
+
+// New types for added charts
+export interface TechnicianWorkloadData {
+  name: string;
+  tickets: number;
+}
+
+export interface TicketStatusData {
+  name: string;
+  value: number;
+}
+
+export interface AvgResolutionTimeData {
+  name: string;
+  'Avg Hours': number;
 }

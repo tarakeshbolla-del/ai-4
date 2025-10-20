@@ -84,7 +84,7 @@ const ProblemClusterChart: React.FC<ProblemClusterChartProps> = ({ data }) => {
 
     const link = svg.append("g")
       .attr('class', 'links')
-      .attr("stroke", theme === 'light' ? "#999" : "#555")
+      .attr("stroke", theme === 'light' ? "#cccccc" : "#374151")
       .selectAll('line')
       .data(links)
       .join('line')
@@ -101,7 +101,7 @@ const ProblemClusterChart: React.FC<ProblemClusterChartProps> = ({ data }) => {
     nodeGroup.append("circle")
         .attr("r", d => radiusScale(d.value))
         .attr("fill", (d: any) => colorScale(d.depth.toString()))
-        .attr("stroke", "#fff")
+        .attr("stroke", theme === 'light' ? '#fff' : '#111827')
         .attr("stroke-width", 1.5);
 
     nodeGroup.append("text")
@@ -160,11 +160,11 @@ const ProblemClusterChart: React.FC<ProblemClusterChartProps> = ({ data }) => {
     if (!hoveredNode) {
         svg.selectAll('.node-group').style('opacity', 1);
         svg.selectAll('.link').style('stroke-opacity', 0.6);
-        svg.selectAll('circle').attr('stroke', '#fff');
+        svg.selectAll('circle').attr('stroke', theme === 'light' ? '#fff' : '#111827');
         return;
     }
     
-    svg.selectAll('circle').attr('stroke', d => (d as any).id === hoveredNode.id ? (theme === 'light' ? '#000' : '#fff') : '#fff');
+    svg.selectAll('circle').attr('stroke', d => (d as any).id === hoveredNode.id ? (theme === 'light' ? '#0ea5e9' : '#38bdf8') : (theme === 'light' ? '#fff' : '#111827'));
 
     const linkedByIndex = new Map();
     links.forEach(d => {

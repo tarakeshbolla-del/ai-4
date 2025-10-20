@@ -26,7 +26,7 @@ const AccuracyGauge: React.FC<AccuracyGaugeProps> = ({ value }) => {
         className="transform -rotate-90"
       >
         <circle
-          className="text-gray-200 dark:text-gray-700"
+          className="text-gray-200 dark:text-gray-700/50"
           stroke="currentColor"
           cx="60"
           cy="60"
