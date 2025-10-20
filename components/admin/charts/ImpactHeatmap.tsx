@@ -3,9 +3,10 @@ import type { HeatmapDataPoint } from '../../../types';
 
 interface ImpactHeatmapProps {
   data: HeatmapDataPoint[];
+  onCellClick: (category: string, priority: string) => void;
 }
 
-const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data }) => {
+const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data, onCellClick }) => {
   const findValue = (category: string, priority: string) => {
     return data.find(d => d.category === category && d.priority === priority)?.value || 0;
   };
@@ -73,13 +74,16 @@ const ImpactHeatmap: React.FC<ImpactHeatmapProps> = ({ data }) => {
                     {categories.map(category => {
                         const value = findValue(category, priority);
                         return (
-                             <div 
+                             <button 
                                 key={`${category}-${priority}`}
-                                className={`h-12 flex items-center justify-center rounded transition-colors ${getColor(value)}`}
+                                onClick={() => onCellClick(category, priority)}
+                                disabled={value === 0}
+                                className={`h-12 flex items-center justify-center rounded transition-all focus:outline-none ${getColor(value)} ${value > 0 ? 'cursor-pointer hover:ring-2 hover:ring-offset-2 hover:ring-light-accent dark:hover:ring-dark-accent ring-offset-light-card dark:ring-offset-dark-card' : 'cursor-default'}`}
                                 title={`${value} tickets`}
+                                aria-label={`View ${value} tickets for ${category} with ${priorityDisplayMap[priority] || priority} priority`}
                             >
                                 <span className={`text-sm font-medium ${getTextColor(value)}`}>{value > 0 ? value : ''}</span>
-                             </div>
+                             </button>
                         );
                     })}
                 </React.Fragment>

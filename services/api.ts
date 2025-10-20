@@ -583,6 +583,19 @@ export const getWordCloudData = (category: string): Promise<{ word: string, valu
     });
 };
 
+export const getTicketsByCategoryAndPriority = (category: string, priority: string): Promise<SimilarTicket[]> => {
+    return new Promise(resolve => {
+        if (!isModelTrained) {
+            resolve([]);
+        } else {
+            const filtered = uploadedTickets.filter(
+                ticket => ticket.category === category && ticket.priority === priority
+            );
+            resolve(filtered);
+        }
+    });
+};
+
 
 export const proposeCsvMapping = async (file: File): Promise<{ headers: string[], mapping: CsvHeaderMapping, rowCount: number }> => {
     // Reset all trained and in-progress data when a new file upload is initiated.

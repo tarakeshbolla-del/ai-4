@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getInitialDashboardData, getWordCloudData } from '../../services/api';
+import { getInitialDashboardData, getWordCloudData, getTicketsByCategoryAndPriority } from '../../services/api';
 import { socketService } from '../../services/socketService';
-import type { Kpis, RootCauseData, HeatmapDataPoint } from '../../types';
+import type { Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket } from '../../types';
 import KpiCard from './charts/KpiCard';
 import RootCauseFunnel from './charts/RootCauseFunnel';
 import WordCloud from './charts/WordCloud';
 import ImpactHeatmap from './charts/ImpactHeatmap';
 import LoadingSpinner from '../common/LoadingSpinner';
+import Modal from '../common/Modal';
 
 const DashboardView: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -18,6 +19,10 @@ const DashboardView: React.FC = () => {
   const [wordCloudData, setWordCloudData] = useState<{ word: string, value: number }[]>([]);
   const [isWordCloudLoading, setIsWordCloudLoading] = useState(false);
   const [searchParams] = useSearchParams();
+  
+  // State for the interactive heatmap modal
+  const [modalData, setModalData] = useState<{ title: string; tickets: SimilarTicket[] } | null>(null);
+  const [isModalLoading, setIsModalLoading] = useState(false);
 
   const handleBarClick = useCallback((cause: string) => {
     if (selectedCause === cause) {
@@ -32,6 +37,22 @@ const DashboardView: React.FC = () => {
         setIsWordCloudLoading(false);
     });
   }, [selectedCause]);
+  
+  const handleHeatmapCellClick = async (category: string, priority: string) => {
+    const priorityDisplayMap: Record<string, string> = { p1: 'High', p2: 'Medium', p3: 'Low' };
+    const title = `Loading tickets for ${category} / ${priorityDisplayMap[priority] || priority}...`;
+
+    setIsModalLoading(true);
+    setModalData({ title, tickets: [] });
+    
+    const tickets = await getTicketsByCategoryAndPriority(category, priority);
+    
+    setModalData({
+        title: `${tickets.length} ${priorityDisplayMap[priority] || priority} Priority tickets for ${category}`,
+        tickets: tickets
+    });
+    setIsModalLoading(false);
+  };
 
   // Effect 1: Load all initial data and set up sockets. Runs once.
   useEffect(() => {
@@ -136,15 +157,56 @@ const DashboardView: React.FC = () => {
 
       <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border">
         <h3 className="text-lg font-semibold mb-1">Business Impact Heatmap</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Ticket volume by category and priority.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Ticket volume by category and priority. Click a cell to view tickets.</p>
         {heatmapData.length > 0 ? (
-          <ImpactHeatmap data={heatmapData} />
+          <ImpactHeatmap data={heatmapData} onCellClick={handleHeatmapCellClick} />
         ) : (
           <div className="flex-grow flex items-center justify-center text-center text-gray-500 dark:text-gray-400 min-h-[200px]">
             <p>Train a model from the Knowledge Base page to see the business impact heatmap.</p>
           </div>
         )}
       </div>
+
+       {modalData && (
+        <Modal
+            isOpen={!!modalData}
+            onClose={() => setModalData(null)}
+            title={modalData.title}
+        >
+            {isModalLoading ? (
+                <div className="h-48 flex items-center justify-center">
+                    <LoadingSpinner />
+                </div>
+            ) : (
+                <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
+                    <ul className="space-y-3">
+                        {modalData.tickets.map(ticket => (
+                            <li key={ticket.ticket_no} className="p-3 bg-slate-50 dark:bg-gray-800/50 rounded-lg border border-light-border dark:border-dark-border text-sm">
+                                <div className="flex justify-between items-start">
+                                    <p className="font-semibold text-light-text dark:text-dark-text">{ticket.problem_description}</p>
+                                    <span className="ml-4 flex-shrink-0 font-mono text-xs text-gray-500 dark:text-gray-400">{ticket.ticket_no}</span>
+                                </div>
+                                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                    <span className="font-medium">Technician:</span> {ticket.technician || 'N/A'}
+                                    <span className="mx-2">|</span>
+                                    <span className="font-medium">Status:</span> {ticket.request_status || 'N/A'}
+                                </div>
+                                {ticket.solution_text && (
+                                    <details className="mt-2 text-xs">
+                                        <summary className="cursor-pointer text-light-accent dark:text-dark-accent font-semibold hover:underline">Show Solution</summary>
+                                        <p className="mt-1 pt-1 border-t border-light-border/50 dark:border-dark-border/50 text-gray-600 dark:text-gray-300">{ticket.solution_text}</p>
+                                    </details>
+                                )}
+                            </li>
+                        ))}
+                        {modalData.tickets.length === 0 && (
+                            <p className="text-center text-gray-500 dark:text-gray-400 py-8">No tickets found for this selection.</p>
+                        )}
+                    </ul>
+                </div>
+            )}
+        </Modal>
+      )}
     </div>
   );
 };
