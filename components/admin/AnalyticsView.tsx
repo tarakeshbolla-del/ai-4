@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -11,8 +12,10 @@ import {
     getTicketStatusDistribution,
     getAvgResolutionTimeByCategory,
     getSlaRiskTickets,
+    getTicketDistributionByDepartment,
 } from '../../services/api';
 import { socketService } from '../../services/socketService';
+import { SAP_MODULE_FULL_NAMES } from '../../constants';
 import type { 
     SunburstNode, 
     SentimentData, 
@@ -23,6 +26,7 @@ import type {
     TicketStatusData,
     AvgResolutionTimeData,
     SlaRiskTicket,
+    DepartmentalTicketData,
 } from '../../types';
 import SunburstChart from './charts/SunburstChart';
 import SentimentTrendChart from './charts/SentimentTrendChart';
@@ -31,6 +35,7 @@ import TechnicianWorkloadChart from './charts/TechnicianWorkloadChart';
 import TicketStatusChart from './charts/TicketStatusChart';
 import AvgResolutionTimeChart from './charts/AvgResolutionTimeChart';
 import SlaRiskAnalysis from './charts/SlaRiskAnalysis';
+import DepartmentalTicketChart from './charts/DepartmentalTicketChart';
 import LoadingSpinner from '../common/LoadingSpinner';
 
 const TrendingUpIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -67,6 +72,8 @@ const AnalyticsView: React.FC = () => {
     const [isStatusLoading, setIsStatusLoading] = useState(true);
     const [avgResolution, setAvgResolution] = useState<AvgResolutionTimeData[]>([]);
     const [isResolutionLoading, setIsResolutionLoading] = useState(true);
+    const [departmentalTickets, setDepartmentalTickets] = useState<DepartmentalTicketData[]>([]);
+    const [isDepartmentalLoading, setIsDepartmentalLoading] = useState(true);
 
 
     const navigate = useNavigate();
@@ -131,8 +138,17 @@ const AnalyticsView: React.FC = () => {
         });
         setIsResolutionLoading(true);
         getAvgResolutionTimeByCategory().then(data => {
-            setAvgResolution(data);
+            const transformedData = data.map(item => ({
+                ...item,
+                name: SAP_MODULE_FULL_NAMES[item.name] || item.name
+            }));
+            setAvgResolution(transformedData);
             setIsResolutionLoading(false);
+        });
+        setIsDepartmentalLoading(true);
+        getTicketDistributionByDepartment().then(data => {
+            setDepartmentalTickets(data);
+            setIsDepartmentalLoading(false);
         });
 
 
@@ -223,8 +239,16 @@ const AnalyticsView: React.FC = () => {
             </div>
 
             <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border">
-                <h3 className="text-lg font-semibold mb-1">Average Resolution Time by Category</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Average time in hours to resolve tickets, grouped by category.</p>
+                <h3 className="text-lg font-semibold mb-1">Ticket Distribution by Department</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Total ticket volume for each department.</p>
+                <div className="w-full h-[500px] flex items-center justify-center">
+                    {isDepartmentalLoading ? <LoadingSpinner /> : <DepartmentalTicketChart data={departmentalTickets} />}
+                </div>
+            </div>
+
+            <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border">
+                <h3 className="text-lg font-semibold mb-1">Average Resolution Time by Department</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Average time in hours to resolve tickets, grouped by department.</p>
                 <div className="w-full h-[400px] flex items-center justify-center">
                     {isResolutionLoading ? <LoadingSpinner /> : <AvgResolutionTimeChart data={avgResolution} />}
                 </div>

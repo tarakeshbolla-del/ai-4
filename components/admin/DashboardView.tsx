@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getInitialDashboardData, getWordCloudData, getTicketsByCategoryAndPriority } from '../../services/api';
 import { socketService } from '../../services/socketService';
+import { SAP_MODULE_FULL_NAMES, SAP_MODULE_REVERSE_NAMES } from '../../constants';
 import type { Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket } from '../../types';
 import KpiCard from './charts/KpiCard';
 import RootCauseFunnel from './charts/RootCauseFunnel';
@@ -32,7 +33,8 @@ const DashboardView: React.FC = () => {
     }
     setSelectedCause(cause);
     setIsWordCloudLoading(true);
-    getWordCloudData(cause).then(data => {
+    const shortCause = SAP_MODULE_REVERSE_NAMES[cause] || cause;
+    getWordCloudData(shortCause).then(data => {
         setWordCloudData(data);
         setIsWordCloudLoading(false);
     });
@@ -45,7 +47,8 @@ const DashboardView: React.FC = () => {
     setIsModalLoading(true);
     setModalData({ title, tickets: [] });
     
-    const tickets = await getTicketsByCategoryAndPriority(category, priority);
+    const shortCategory = SAP_MODULE_REVERSE_NAMES[category] || category;
+    const tickets = await getTicketsByCategoryAndPriority(shortCategory, priority);
     
     setModalData({
         title: `${tickets.length} ${priorityDisplayMap[priority] || priority} tickets for ${category}`,
@@ -90,21 +93,23 @@ const DashboardView: React.FC = () => {
     if (loading) return; // Wait until data is loaded
 
     const filter = searchParams.get('filter');
-    const validCauses = new Set(rootCauses.map(rc => rc.name));
+    const validCauses = new Set(rootCauses.map(rc => SAP_MODULE_FULL_NAMES[rc.name] || rc.name));
 
     if (filter && validCauses.has(filter)) {
       // A valid filter is present. If it's not already selected, update the view.
       if (selectedCause !== filter) {
         setSelectedCause(filter);
         setIsWordCloudLoading(true);
-        getWordCloudData(filter).then(data => {
+        const shortCause = SAP_MODULE_REVERSE_NAMES[filter] || filter;
+        getWordCloudData(shortCause).then(data => {
             setWordCloudData(data);
             setIsWordCloudLoading(false);
         });
       }
     } else if (!selectedCause && rootCauses.length > 0) {
       // No filter, and nothing is selected yet (initial load case). Default to the first cause.
-      setSelectedCause(rootCauses[0].name);
+      const firstCauseFullName = SAP_MODULE_FULL_NAMES[rootCauses[0].name] || rootCauses[0].name;
+      setSelectedCause(firstCauseFullName);
       setIsWordCloudLoading(true);
       getWordCloudData(rootCauses[0].name).then(data => {
           setWordCloudData(data);
@@ -132,7 +137,7 @@ const DashboardView: React.FC = () => {
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Click a tile to explore related keywords.</p>
           <div className="flex-grow">
             {rootCauses.length > 0 ? (
-                <RootCauseFunnel data={rootCauses} onBarClick={handleBarClick} selectedCause={selectedCause} />
+                <RootCauseFunnel data={rootCauses.map(rc => ({ ...rc, name: SAP_MODULE_FULL_NAMES[rc.name] || rc.name }))} onBarClick={handleBarClick} selectedCause={selectedCause} />
             ) : (
                 <div className="flex h-full items-center justify-center text-center text-gray-500 dark:text-gray-400">
                 <p>Train a model from the Knowledge Base page to see root cause analysis.</p>
@@ -161,7 +166,7 @@ const DashboardView: React.FC = () => {
         <h3 className="text-lg font-semibold mb-1">Business Impact Heatmap</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Ticket volume by category and priority. Click a cell to view tickets.</p>
         {heatmapData.length > 0 ? (
-          <ImpactHeatmap data={heatmapData} onCellClick={handleHeatmapCellClick} />
+          <ImpactHeatmap data={heatmapData.map(d => ({ ...d, category: SAP_MODULE_FULL_NAMES[d.category] || d.category }))} onCellClick={handleHeatmapCellClick} />
         ) : (
           <div className="flex-grow flex items-center justify-center text-center text-gray-500 dark:text-gray-400 min-h-[200px]">
             <p>Train a model from the Knowledge Base page to see the business impact heatmap.</p>

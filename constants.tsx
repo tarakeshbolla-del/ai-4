@@ -66,6 +66,36 @@ export const DEFAULT_TICKET_CATEGORIES = [
     'Software', 'Hardware', 'Network', 'Account Management', 'Database'
 ];
 
+export const DEFAULT_SAP_MODULES = [
+    'MM',       // Materials Management
+    'SD',       // Sales and Distribution
+    'FI',       // Financial Accounting
+    'CO',       // Controlling
+    'PP',       // Production Planning
+    'QM',       // Quality Management
+    'PM',       // Plant Maintenance
+    'HR',       // Human Resources
+    'Basis',    // System Administration
+    'Other'     // Fallback
+];
+
+export const SAP_MODULE_FULL_NAMES: Record<string, string> = {
+    'MM': 'Materials Management',
+    'SD': 'Sales and Distribution',
+    'FI': 'Financial Accounting',
+    'CO': 'Controlling',
+    'PP': 'Production Planning',
+    'QM': 'Quality Management',
+    'PM': 'Plant Maintenance',
+    'HR': 'Human Resources',
+    'Basis': 'System Administration',
+    'Other': 'Other'
+};
+
+export const SAP_MODULE_REVERSE_NAMES: Record<string, string> = Object.fromEntries(
+    Object.entries(SAP_MODULE_FULL_NAMES).map(([key, value]) => [value, key])
+);
+
 export const DEFAULT_TICKET_PRIORITIES = [
     'p1', 'p2', 'p3'
 ];

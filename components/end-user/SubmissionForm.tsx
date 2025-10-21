@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { UploadIcon } from '../../constants';
+import { UploadIcon, SAP_MODULE_FULL_NAMES } from '../../constants';
 import { getSimilarIssues, getDynamicCategories, getDynamicPriorities } from '../../services/api';
 import type { SimilarTicket } from '../../types';
 
@@ -199,7 +199,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
             onChange={(e) => onCategoryChange(e.target.value)}
           >
             <option value="">AI will predict</option>
-            {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            {categories.map(cat => <option key={cat} value={cat}>{SAP_MODULE_FULL_NAMES[cat] || cat}</option>)}
           </select>
         </div>
         <div>

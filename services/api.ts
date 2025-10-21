@@ -1,5 +1,5 @@
-import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint, CsvHeaderMapping, OutlierReport, ModelAccuracyReport, TechnicianWorkloadData, TicketStatusData, AvgResolutionTimeData, SlaRiskTicket } from '../types';
-import { DEFAULT_TICKET_CATEGORIES, DEFAULT_TICKET_PRIORITIES } from '../constants';
+import type { AnalysisResultData, Kpis, RootCauseData, HeatmapDataPoint, SimilarTicket, EdaReport, TrainingStatus, SunburstNode, SentimentData, PredictiveHotspot, SlaBreachTicket, TicketVolumeForecastDataPoint, CsvHeaderMapping, OutlierReport, ModelAccuracyReport, TechnicianWorkloadData, TicketStatusData, AvgResolutionTimeData, SlaRiskTicket, DepartmentalTicketData } from '../types';
+import { DEFAULT_TICKET_CATEGORIES, DEFAULT_TICKET_PRIORITIES, DEFAULT_SAP_MODULES, SAP_MODULE_FULL_NAMES } from '../constants';
 import { getAiSuggestion, getMappingSuggestion, getNormalizedMappings, generateKeywords, getComplexityScore } from '../services/geminiService';
 import { socketService } from './socketService';
 
@@ -688,19 +688,17 @@ export const uploadKnowledgeBase = async (
             }
         });
 
-        // USER REQUEST: Do not normalize categories. Create a 1-to-1 mapping instead.
         const uniqueRawCategories = Object.keys(rawCategoryCounts);
-        const categoryMapping: Record<string, string> = {};
+        let categoryMapping: Record<string, string> = {};
         if (uniqueRawCategories.length > 0) {
-            uniqueRawCategories.forEach(cat => {
-                categoryMapping[cat] = cat;
-            });
+            // Normalize raw categories to standard SAP modules using Gemini
+            categoryMapping = await getNormalizedMappings(uniqueRawCategories, DEFAULT_SAP_MODULES, 'Category', 'Other');
         }
 
         const uniqueRawPriorities = Object.keys(rawPriorityCounts);
         let priorityMapping: Record<string, string> = {};
         if (uniqueRawPriorities.length > 0) {
-            priorityMapping = await getNormalizedMappings(uniqueRawPriorities, dynamicPriorities, 'Priority', 'Medium');
+            priorityMapping = await getNormalizedMappings(uniqueRawPriorities, DEFAULT_TICKET_PRIORITIES, 'Priority', 'p3');
         }
         
         // --- OUTLIER DETECTION ---
@@ -1314,6 +1312,32 @@ export const getAvgResolutionTimeByCategory = (): Promise<AvgResolutionTimeData[
                 ]);
             }
         }, 850);
+    });
+};
+
+export const getTicketDistributionByDepartment = (): Promise<DepartmentalTicketData[]> => {
+    return new Promise(resolve => {
+        setTimeout(() => {
+            // Check if data has been uploaded and parsed.
+            // `rawParsedTickets` holds the original, unnormalized data which contains the department names.
+            if (isModelTrained && rawParsedTickets.length > 0) {
+                const departmentCounts: Record<string, number> = {};
+
+                rawParsedTickets.forEach(ticket => {
+                    // Use the raw 'category' field, which represents the department before normalization.
+                    const department = ticket.category || 'Not Assigned';
+                    departmentCounts[department] = (departmentCounts[department] || 0) + 1;
+                });
+
+                const data: DepartmentalTicketData[] = Object.entries(departmentCounts)
+                    .map(([name, total]) => ({ name, Total: total }));
+                
+                resolve(data);
+            } else {
+                // If no model is trained or no data is uploaded, return an empty array.
+                resolve([]);
+            }
+        }, 750);
     });
 };
 

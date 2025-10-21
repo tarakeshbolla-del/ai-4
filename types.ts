@@ -127,3 +127,8 @@ export interface AvgResolutionTimeData {
   name: string;
   'Avg Hours': number;
 }
+
+export interface DepartmentalTicketData {
+  name: string;
+  Total: number;
+}

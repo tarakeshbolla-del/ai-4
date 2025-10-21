@@ -129,7 +129,10 @@ export async function getMappingSuggestion(userHeaders: string[]): Promise<Recor
 }
 
 /**
- * Performs a simple 1-to-1 mapping for raw values without calling an API.
+ * Normalizes raw values from a CSV.
+ * - For 'Priority', it uses a keyword-based heuristic.
+ * - For 'Category', it now performs a 1-to-1 mapping to use the raw categories from the uploaded document.
+ * - For other fields, it performs a 1-to-1 mapping.
  */
 export async function getNormalizedMappings(
   rawValues: string[],
@@ -137,15 +140,51 @@ export async function getNormalizedMappings(
   fieldName: string,
   defaultValue: string
 ): Promise<Record<string, string>> {
-  // As requested, this function now performs a simple 1-to-1 mapping
-  // without calling the Gemini API to avoid rate limiting.
+
+  if (fieldName === 'Priority') {
+    // Heuristic-based normalization for ticket priorities.
+    const mapping: Record<string, string> = {};
+
+    const highPriorityKeywords = ['critical', 'urgent', 'highest', 'high', 'immediate', 'p1'];
+    const mediumPriorityKeywords = ['medium', 'moderate', 'p2', 'normal'];
+    // Low ('p3') is the default for anything not matching high or medium keywords.
+
+    rawValues.forEach(rawValue => {
+      const lowerRawValue = rawValue.toLowerCase();
+      const numericMatch = lowerRawValue.match(/\d+/);
+      const num = numericMatch ? parseInt(numericMatch[0], 10) : null;
+
+      // Use RegExp with word boundaries (\b) to match whole words and avoid partial matches.
+      if (highPriorityKeywords.some(kw => new RegExp(`\\b${kw}\\b`).test(lowerRawValue)) || num === 1) {
+        mapping[rawValue] = 'p1';
+      } else if (mediumPriorityKeywords.some(kw => new RegExp(`\\b${kw}\\b`).test(lowerRawValue)) || num === 2) {
+        mapping[rawValue] = 'p2';
+      } else {
+        mapping[rawValue] = 'p3'; // Default to Low
+      }
+    });
+
+    return mapping;
+  }
+
+  if (fieldName === 'Category') {
+    // The user wants to see categories as they are in the uploaded document.
+    // This change disables the automatic normalization to standard SAP modules
+    // by forcing a 1-to-1 mapping for the 'Category' field.
+    const oneToOneMapping: Record<string, string> = {};
+    rawValues.forEach(value => {
+      oneToOneMapping[value] = value;
+    });
+    return oneToOneMapping;
+  }
+  
+  // Fallback for any other fieldName: 1-to-1 mapping
   const oneToOneMapping: Record<string, string> = {};
   rawValues.forEach(value => {
     oneToOneMapping[value] = value;
   });
   return oneToOneMapping;
 }
-
 
 /**
  * Generates relevant keywords from ticket descriptions using simple text parsing.
