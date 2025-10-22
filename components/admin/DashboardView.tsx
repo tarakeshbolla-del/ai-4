@@ -131,31 +131,31 @@ const DashboardView: React.FC = () => {
         <KpiCard title="First Contact Resolution" value={`${kpis?.firstContactResolution.toFixed(1)}%`} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border min-h-[352px] flex flex-col">
-          <h3 className="text-lg font-semibold mb-1">Top Root Causes</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Click a tile to explore related keywords.</p>
-          <div className="flex-grow">
-            {rootCauses.length > 0 ? (
-                <RootCauseFunnel data={rootCauses.map(rc => ({ ...rc, name: SAP_MODULE_FULL_NAMES[rc.name] || rc.name }))} onBarClick={handleBarClick} selectedCause={selectedCause} />
-            ) : (
-                <div className="flex h-full items-center justify-center text-center text-gray-500 dark:text-gray-400">
-                <p>Train a model from the Knowledge Base page to see root cause analysis.</p>
-                </div>
-            )}
-          </div>
+      <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border h-96 flex flex-col">
+        <h3 className="text-lg font-semibold mb-1">Top Root Causes</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Click a tile to explore related keywords.</p>
+        <div className="flex-grow">
+          {rootCauses.length > 0 ? (
+              <RootCauseFunnel data={rootCauses.map(rc => ({ ...rc, name: SAP_MODULE_FULL_NAMES[rc.name] || rc.name }))} onBarClick={handleBarClick} selectedCause={selectedCause} />
+          ) : (
+              <div className="flex h-full items-center justify-center text-center text-gray-500 dark:text-gray-400">
+              <p>Train a model from the Knowledge Base page to see root cause analysis.</p>
+              </div>
+          )}
         </div>
-        <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border min-h-[352px] flex flex-col">
-          <h3 className="text-lg font-semibold mb-1">
-            Problem Keywords
-          </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-             For: <span className="font-semibold text-light-accent dark:text-dark-accent">{selectedCause || '...'}</span>
-          </p>
+      </div>
+      <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border h-96 flex flex-col">
+        <h3 className="text-lg font-semibold mb-1">
+          Problem Keywords
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+           For: <span className="font-semibold text-light-accent dark:text-dark-accent">{selectedCause || '...'}</span>
+        </p>
+         <div className="flex-grow">
            {rootCauses.length > 0 ? (
             <WordCloud data={wordCloudData} isLoading={isWordCloudLoading} />
           ) : (
-            <div className="flex-grow flex items-center justify-center text-center text-gray-500 dark:text-gray-400">
+            <div className="flex h-full items-center justify-center text-center text-gray-500 dark:text-gray-400">
               <p>No root causes to analyze.</p>
             </div>
           )}
