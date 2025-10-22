@@ -21,21 +21,21 @@ const DepartmentalTicketChart: React.FC<DepartmentalTicketChartProps> = ({ data 
     );
   }
 
-  const sortedData = [...data].sort((a, b) => b.Total - a.Total);
+  // Sort ascending for horizontal bar chart (so largest bar is at the top)
+  const sortedData = [...data].sort((a, b) => a.Total - b.Total);
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={sortedData} margin={{ top: 20, right: 30, left: 20, bottom: 150 }}>
+      <BarChart data={sortedData} layout="vertical" margin={{ top: 5, right: 40, left: 20, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
-        <XAxis 
-            dataKey="name" 
-            tick={{ fill: colors.text, fontSize: 12 }} 
-            angle={-60} 
-            textAnchor="end" 
-            interval={0} 
-            height={140}
-        />
-        <YAxis tick={{ fill: colors.text, fontSize: 12 }} />
+        <XAxis type="number" tick={{ fill: colors.text, fontSize: 12 }} />
+        <YAxis
+            dataKey="name"
+            type="category"
+            tick={{ fill: colors.text, fontSize: 12 }}
+            width={150} // Allocate more space for long names
+            interval={0}
+            />
         <Tooltip
           contentStyle={{ 
             backgroundColor: theme === 'light' ? '#FFFFFF' : '#111827',
@@ -44,7 +44,7 @@ const DepartmentalTicketChart: React.FC<DepartmentalTicketChartProps> = ({ data 
           cursor={{ fill: theme === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}
         />
         <Bar dataKey="Total" fill={colors.accent}>
-            <LabelList dataKey="Total" position="top" style={{ fill: colors.text, fontSize: 12 }} />
+          <LabelList dataKey="Total" position="right" style={{ fill: colors.text, fontSize: 12 }} />
         </Bar>
       </BarChart>
     </ResponsiveContainer>

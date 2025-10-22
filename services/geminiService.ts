@@ -131,8 +131,8 @@ export async function getMappingSuggestion(userHeaders: string[]): Promise<Recor
 /**
  * Normalizes raw values from a CSV.
  * - For 'Priority', it uses a keyword-based heuristic.
- * - For 'Category', it now performs a 1-to-1 mapping to use the raw categories from the uploaded document.
- * - For other fields, it performs a 1-to-1 mapping.
+ * - For 'Category', it cleans the string by removing special characters.
+ * - For other fields, it uses the Gemini API to map to standard values.
  */
 export async function getNormalizedMappings(
   rawValues: string[],
@@ -141,8 +141,8 @@ export async function getNormalizedMappings(
   defaultValue: string
 ): Promise<Record<string, string>> {
 
+  // Heuristic-based normalization for ticket priorities.
   if (fieldName === 'Priority') {
-    // Heuristic-based normalization for ticket priorities.
     const mapping: Record<string, string> = {};
 
     const highPriorityKeywords = ['critical', 'urgent', 'highest', 'high', 'immediate', 'p1'];
@@ -167,23 +167,88 @@ export async function getNormalizedMappings(
     return mapping;
   }
 
+  // Simple string cleaning for categories, as requested by the user.
   if (fieldName === 'Category') {
-    // The user wants to see categories as they are in the uploaded document.
-    // This change disables the automatic normalization to standard SAP modules
-    // by forcing a 1-to-1 mapping for the 'Category' field.
-    const oneToOneMapping: Record<string, string> = {};
-    rawValues.forEach(value => {
-      oneToOneMapping[value] = value;
+    const mapping: Record<string, string> = {};
+    rawValues.forEach(rawValue => {
+      // Eliminate special characters, keeping only alphanumeric characters and whitespace.
+      const cleanedValue = rawValue
+        .replace(/[^a-zA-Z0-9\s]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      mapping[rawValue] = cleanedValue || defaultValue;
     });
-    return oneToOneMapping;
+    return mapping;
   }
+
+  // Fallback to Gemini for any other field needing normalization.
+  const prompt = `
+    You are an intelligent data cleaning assistant for an IT service management system.
+    Your task is to normalize a list of raw ${fieldName} values into a standard set of values.
+
+    Standard ${fieldName}s:
+    ${standardValues.join(', ')}
+
+    Raw ${fieldName}s (input):
+    ${rawValues.join(', ')}
+
+    Analyze the raw values and map each one to the most appropriate standard value.
+    If a raw value does not clearly fit any standard value, map it to "${defaultValue}".
+    Your output MUST be a valid JSON object in the format {"rawValue1": "standardValue1", "rawValue2": "standardValue2", ...}.
+    Provide only the JSON object in your response, with no other text, comments, or markdown formatting.
+    Ensure every single raw value from the input list is included as a key in the final JSON object.
+  `;
   
-  // Fallback for any other fieldName: 1-to-1 mapping
-  const oneToOneMapping: Record<string, string> = {};
-  rawValues.forEach(value => {
-    oneToOneMapping[value] = value;
-  });
-  return oneToOneMapping;
+  try {
+    const response = await geminiApiCallWithRetry<GenerateContentResponse>(() =>
+      ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+        }
+      })
+    );
+
+    // The response.text should be a JSON string.
+    let parsedJson: Record<string, string>;
+    try {
+        // The API might return the JSON wrapped in markdown ```json ... ```
+        const jsonString = response.text.replace(/^```json\s*|```\s*$/g, '').trim();
+        parsedJson = JSON.parse(jsonString);
+    } catch (e) {
+        console.error("Failed to parse Gemini JSON response for normalization:", e);
+        console.error("Raw response:", response.text);
+        throw new Error("Invalid JSON response from AI for normalization.");
+    }
+    
+    // Safety check: ensure all raw values are mapped and values are standard.
+    const finalMapping: Record<string, string> = {};
+    rawValues.forEach(rawValue => {
+      if (parsedJson[rawValue] && standardValues.includes(parsedJson[rawValue])) {
+        finalMapping[rawValue] = parsedJson[rawValue];
+      } else if (parsedJson[rawValue]) {
+        console.warn(`Gemini returned a non-standard value '${parsedJson[rawValue]}' for '${rawValue}'. Mapping to default value '${defaultValue}'.`);
+        finalMapping[rawValue] = defaultValue;
+      }
+      else {
+        // Model missed a raw value, map to default.
+        finalMapping[rawValue] = defaultValue;
+      }
+    });
+
+    return finalMapping;
+
+  } catch (error) {
+    console.error(`Error calling Gemini for ${fieldName} normalization:`, error);
+    // On error, fall back to 1-to-1 mapping to let the user see their original values.
+    console.warn(`Falling back to 1-to-1 mapping for ${fieldName} due to an API error.`);
+    const fallbackMapping: Record<string, string> = {};
+    rawValues.forEach(value => {
+      fallbackMapping[value] = value;
+    });
+    return fallbackMapping;
+  }
 }
 
 /**

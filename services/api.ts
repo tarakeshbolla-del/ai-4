@@ -1318,13 +1318,13 @@ export const getAvgResolutionTimeByCategory = (): Promise<AvgResolutionTimeData[
 export const getTicketDistributionByDepartment = (): Promise<DepartmentalTicketData[]> => {
     return new Promise(resolve => {
         setTimeout(() => {
-            // Check if data has been uploaded and parsed.
-            // `rawParsedTickets` holds the original, unnormalized data which contains the department names.
-            if (isModelTrained && rawParsedTickets.length > 0) {
+            // This chart should reflect the data POST-cleaning and normalization.
+            // Therefore, it should use `uploadedTickets` instead of `rawParsedTickets`.
+            if (isModelTrained && uploadedTickets.length > 0) {
                 const departmentCounts: Record<string, number> = {};
 
-                rawParsedTickets.forEach(ticket => {
-                    // Use the raw 'category' field, which represents the department before normalization.
+                uploadedTickets.forEach(ticket => {
+                    // Use the 'category' field from the cleaned tickets.
                     const department = ticket.category || 'Not Assigned';
                     departmentCounts[department] = (departmentCounts[department] || 0) + 1;
                 });

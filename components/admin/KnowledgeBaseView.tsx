@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { proposeCsvMapping, uploadKnowledgeBase, initiateTraining, getTrainingStatus, finalizeTicketData, getModelAccuracyReport } from '../../services/api';
-import type { EdaReport, TrainingStatus, CsvHeaderMapping, ModelAccuracyReport } from '../../types';
+import { DEFAULT_SAP_MODULES, SAP_MODULE_FULL_NAMES, DEFAULT_TICKET_PRIORITIES } from '../../../constants';
+import type { EdaReport, TrainingStatus, CsvHeaderMapping, ModelAccuracyReport } from '../../../types';
 import LoadingSpinner from '../common/LoadingSpinner';
 import CategoryDistributionChart from './charts/CategoryDistributionChart';
 import MissingValuesChart from './charts/MissingValuesChart';
@@ -21,7 +22,7 @@ const REQUIRED_FIELDS: Record<string, { label: string, description: string, crit
 };
 
 const Stepper: React.FC<{ currentStep: number }> = ({ currentStep }) => {
-    const steps = ["Upload", "Map Headers", "Clean Priorities", "Train Model"];
+    const steps = ["Upload", "Map Headers", "Clean Data", "Train Model"];
     return (
         <nav aria-label="Progress">
             <ol role="list" className="flex items-center">
@@ -89,6 +90,7 @@ const KnowledgeBaseView: React.FC = () => {
     const [isPreparing, setIsPreparing] = useState(false);
     const [isDataPrepared, setIsDataPrepared] = useState(false);
     const [accuracyReport, setAccuracyReport] = useState<ModelAccuracyReport | null>(null);
+    const [activeCleaningTab, setActiveCleaningTab] = useState('categories');
     
     // State for priority merging
     const [selectedPriorities, setSelectedPriorities] = useState<Set<string>>(new Set());
@@ -153,7 +155,8 @@ const KnowledgeBaseView: React.FC = () => {
             setMappingData(null);
             setCurrentMapping(null);
             
-            if (rawPriorityCounts && Object.keys(rawPriorityCounts).length > 0) {
+            if ((rawCategoryCounts && Object.keys(rawCategoryCounts).length > 1) || (rawPriorityCounts && Object.keys(rawPriorityCounts).length > 1)) {
+                 setActiveCleaningTab(Object.keys(rawCategoryCounts || {}).length > 1 ? 'categories' : 'priorities');
                 setCurrentStep(3);
             } else {
                 await handleApplyCleaning(categoryMapping, priorityMapping);
@@ -223,6 +226,14 @@ const KnowledgeBaseView: React.FC = () => {
         setCurrentMapping({
             ...currentMapping,
             [field]: header === '-- Not Mapped --' ? null : header,
+        });
+    };
+
+    const handleCategoryOverrideChange = (rawCategory: string, newNormalizedValue: string) => {
+        if (!categoryMappingOverrides) return;
+        setCategoryMappingOverrides({
+            ...categoryMappingOverrides,
+            [rawCategory]: newNormalizedValue,
         });
     };
     
@@ -310,6 +321,23 @@ const KnowledgeBaseView: React.FC = () => {
         }
     };
     const statusInfo = getStatusMessage();
+
+    const TabButton: React.FC<{isActive: boolean, onClick: () => void, children: React.ReactNode}> = ({isActive, onClick, children}) => (
+        <button
+            onClick={onClick}
+            className={`px-3 py-2 font-medium text-sm rounded-md ${
+                isActive 
+                ? 'bg-light-accent/10 text-light-accent dark:bg-dark-accent/10 dark:text-dark-accent'
+                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+        >
+            {children}
+        </button>
+    );
+
+    const uniqueNormalizedCategories = categoryMappingOverrides
+        ? [...new Set(Object.values(categoryMappingOverrides))].sort()
+        : [];
 
     return (
         <div className="space-y-8">
@@ -420,29 +448,101 @@ const KnowledgeBaseView: React.FC = () => {
                 </div>
             )}
 
-            {currentStep === 3 && priorityMappingOverrides && rawPriorityCounts && (
+            {currentStep === 3 && (categoryMappingOverrides || priorityMappingOverrides) && (
                 <div className="bg-light-card dark:bg-dark-card p-6 rounded-xl shadow-sm border border-light-border dark:border-dark-border space-y-6">
-                    <h3 className="text-xl font-semibold">Step 3: Clean & Normalize Priorities</h3>
-                     <div className="overflow-x-auto border border-light-border dark:border-dark-border rounded-lg max-h-[50vh]">
-                         <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 dark:bg-gray-800/60 text-gray-600 dark:text-gray-300 text-xs uppercase sticky top-0">
-                                <tr>
-                                    <th scope="col" className="px-4 py-3">Raw Priority from CSV</th>
-                                    <th scope="col" className="px-4 py-3 text-right">Ticket Count</th>
-                                    <th scope="col" className="px-4 py-3">Normalized Value (Editable)</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-gray-700 dark:text-gray-300">
-                                {Object.entries(rawPriorityCounts).sort(([, a], [, b]) => Number(b) - Number(a)).map(([rawPriority, count]) => (
-                                    <tr key={rawPriority} className="bg-light-card dark:bg-dark-card border-b dark:border-dark-border hover:bg-slate-50 dark:hover:bg-gray-800/80">
-                                        <td className="px-4 py-2 font-mono text-xs">{rawPriority}</td>
-                                        <td className="px-4 py-2 text-right">{count.toLocaleString()}</td>
-                                        <td className="px-4 py-2"><input type="text" value={priorityMappingOverrides[rawPriority] || ''} onChange={(e) => handlePriorityOverrideChange(rawPriority, e.target.value)} className="w-full p-2 border rounded-md bg-slate-50 dark:bg-gray-800 border-slate-300 dark:border-gray-700 focus:ring-light-accent dark:focus:ring-dark-accent"/></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    <h3 className="text-xl font-semibold">Step 3: Clean & Normalize Data</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Review the AI-powered normalization. You can override any mapping before finalizing the data.</p>
+                    
+                    <div className="border-b border-gray-200 dark:border-gray-700">
+                        <nav className="-mb-px flex space-x-4" aria-label="Tabs">
+                            {rawCategoryCounts && Object.keys(rawCategoryCounts).length > 1 && (
+                                <TabButton isActive={activeCleaningTab === 'categories'} onClick={() => setActiveCleaningTab('categories')}>Categories</TabButton>
+                            )}
+                             {rawPriorityCounts && Object.keys(rawPriorityCounts).length > 1 && (
+                                <TabButton isActive={activeCleaningTab === 'priorities'} onClick={() => setActiveCleaningTab('priorities')}>Priorities</TabButton>
+                            )}
+                        </nav>
                     </div>
+
+                    {activeCleaningTab === 'categories' && categoryMappingOverrides && rawCategoryCounts && (
+                        <div className="space-y-4">
+                             <div className="overflow-x-auto border border-light-border dark:border-dark-border rounded-lg max-h-[50vh]">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 dark:bg-gray-800/60 text-gray-600 dark:text-gray-300 text-xs uppercase sticky top-0">
+                                        <tr>
+                                            <th scope="col" className="px-4 py-3">Raw Category from CSV</th>
+                                            <th scope="col" className="px-4 py-3 text-right">Ticket Count</th>
+                                            <th scope="col" className="px-4 py-3">Normalized Value (Editable)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="text-gray-700 dark:text-gray-300">
+                                        {Object.entries(rawCategoryCounts).sort(([, a], [, b]) => b - a).map(([rawCategory, count]) => (
+                                            <tr key={rawCategory} className="bg-light-card dark:bg-dark-card border-b dark:border-dark-border hover:bg-slate-50 dark:hover:bg-gray-800/80">
+                                                <td className="px-4 py-2 font-mono text-xs">{rawCategory}</td>
+                                                <td className="px-4 py-2 text-right">{count.toLocaleString()}</td>
+                                                <td className="px-4 py-2">
+                                                    <input
+                                                        type="text"
+                                                        list="normalized-categories-datalist"
+                                                        value={categoryMappingOverrides[rawCategory] || ''}
+                                                        onChange={(e) => handleCategoryOverrideChange(rawCategory, e.target.value)}
+                                                        className="w-full p-2 border rounded-md bg-slate-50 dark:bg-gray-800 border-slate-300 dark:border-gray-700 focus:ring-light-accent dark:focus:ring-dark-accent"
+                                                    />
+                                                    <datalist id="normalized-categories-datalist">
+                                                        {uniqueNormalizedCategories.map(cat => <option key={cat} value={cat} />)}
+                                                    </datalist>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeCleaningTab === 'priorities' && priorityMappingOverrides && rawPriorityCounts && (
+                         <div className="space-y-4">
+                             <div className="overflow-x-auto border border-light-border dark:border-dark-border rounded-lg max-h-[50vh]">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 dark:bg-gray-800/60 text-gray-600 dark:text-gray-300 text-xs uppercase sticky top-0">
+                                        <tr>
+                                            <th scope="col" className="px-4 py-3"><input type="checkbox" onChange={(e) => handleSelectAllPriorities(e.target.checked)} /></th>
+                                            <th scope="col" className="px-4 py-3">Raw Priority from CSV</th>
+                                            <th scope="col" className="px-4 py-3 text-right">Ticket Count</th>
+                                            <th scope="col" className="px-4 py-3">Normalized Value (Editable)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="text-gray-700 dark:text-gray-300">
+                                        {Object.entries(rawPriorityCounts).sort(([, a], [, b]) => b - a).map(([rawPriority, count]) => (
+                                            <tr key={rawPriority} className="bg-light-card dark:bg-dark-card border-b dark:border-dark-border hover:bg-slate-50 dark:hover:bg-gray-800/80">
+                                                <td className="px-4 py-2"><input type="checkbox" checked={selectedPriorities.has(rawPriority)} onChange={(e) => handleSelectPriority(rawPriority, e.target.checked)} /></td>
+                                                <td className="px-4 py-2 font-mono text-xs">{rawPriority}</td>
+                                                <td className="px-4 py-2 text-right">{count.toLocaleString()}</td>
+                                                <td className="px-4 py-2">
+                                                     <select
+                                                        value={priorityMappingOverrides[rawPriority] || 'p3'}
+                                                        onChange={(e) => handlePriorityOverrideChange(rawPriority, e.target.value)}
+                                                        className="w-full p-2 border rounded-md bg-slate-50 dark:bg-gray-800 border-slate-300 dark:border-gray-700 focus:ring-light-accent dark:focus:ring-dark-accent"
+                                                    >
+                                                        {DEFAULT_TICKET_PRIORITIES.map(pri => <option key={pri} value={pri}>{pri}</option>)}
+                                                    </select>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="flex items-center space-x-2 p-2 bg-slate-50 dark:bg-gray-800/50 rounded-md">
+                                <span className="text-sm font-medium">Merge {selectedPriorities.size} selected to:</span>
+                                <select value={priorityMergeValue} onChange={(e) => setPriorityMergeValue(e.target.value)} className="p-2 border rounded-md bg-slate-50 dark:bg-gray-800 border-slate-300 dark:border-gray-700">
+                                     <option value="">Select Target...</option>
+                                     {DEFAULT_TICKET_PRIORITIES.map(pri => <option key={pri} value={pri}>{pri}</option>)}
+                                </select>
+                                <button onClick={handleMergePriorities} disabled={selectedPriorities.size === 0 || !priorityMergeValue} className="px-4 py-2 bg-light-accent text-white text-sm font-semibold rounded-md disabled:opacity-50">Merge</button>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex justify-between items-center pt-4 border-t border-light-border dark:border-dark-border">
                          <button onClick={() => setCurrentStep(1)} className="px-4 py-2 border border-light-border dark:border-dark-border rounded-md text-sm hover:bg-gray-50 dark:hover:bg-gray-800/60">← Start Over</button>
                         <button onClick={() => handleApplyCleaning()} disabled={isPreparing} className="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50">{isPreparing ? 'Applying...' : 'Apply Cleaning & Prepare Data'}</button>
