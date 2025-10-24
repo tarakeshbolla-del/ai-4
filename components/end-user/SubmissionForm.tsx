@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { UploadIcon, SAP_MODULE_FULL_NAMES } from '../../constants';
 import { getSimilarIssues, getDynamicCategories, getDynamicPriorities } from '../../services/api';
+import { extractTextFromImage } from '../../services/geminiService';
 import type { SimilarTicket } from '../../types';
 
 interface SubmissionFormProps {
@@ -15,6 +16,17 @@ interface SubmissionFormProps {
   screenshot: File | null;
   onScreenshotChange: (file: File | null) => void;
 }
+
+// Helper to convert File to base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = error => reject(error);
+  });
+};
+
 
 const SubmissionForm: React.FC<SubmissionFormProps> = ({ 
     onAnalyze, 
@@ -33,6 +45,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
   const [isFetchingSimilar, setIsFetchingSimilar] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [priorities, setPriorities] = useState<string[]>([]);
+  const [isOcrRunning, setIsOcrRunning] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -78,9 +91,24 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
     onAnalyze(formData);
   };
 
-  const handleFileChange = (files: FileList | null) => {
+  const handleFileChange = async (files: FileList | null) => {
     if (files && files.length > 0) {
-      onScreenshotChange(files[0]);
+      const file = files[0];
+      onScreenshotChange(file);
+      setIsOcrRunning(true);
+      try {
+        const base64 = await fileToBase64(file);
+        const extractedText = await extractTextFromImage(base64);
+        if (extractedText) {
+          // Prepend to existing description if any, otherwise set it.
+          const newDescription = description ? `${extractedText}\n\n---\n\n${description}` : extractedText;
+          onDescriptionChange(newDescription);
+        }
+      } catch (error) {
+        console.error("Failed to process image for text extraction:", error);
+      } finally {
+        setIsOcrRunning(false);
+      }
     } else {
       onScreenshotChange(null);
     }
@@ -100,11 +128,11 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
       e.preventDefault();
       e.stopPropagation();
   };
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(false);
-      handleFileChange(e.dataTransfer.files);
+      await handleFileChange(e.dataTransfer.files);
   };
 
   const searchTriggered = description.trim().length >= 15;
@@ -128,7 +156,9 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
         />
         <div className="flex flex-col items-center justify-center space-y-2 text-gray-500 dark:text-gray-400">
             <UploadIcon className="w-10 h-10" />
-            {screenshot ? (
+            {isOcrRunning ? (
+                <p className="font-semibold text-light-accent dark:text-dark-accent animate-pulse">Reading text from image...</p>
+            ) : screenshot ? (
                 <p className="text-green-600 dark:text-green-400 font-semibold">✅ {screenshot.name} selected</p>
             ) : (
                 <p><span className="font-semibold text-light-accent dark:text-dark-accent">Click to upload</span> or drag and drop a screenshot</p>

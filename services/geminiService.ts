@@ -85,6 +85,51 @@ export async function getAiSuggestion(
 }
 
 /**
+ * Extracts text from an image using the Gemini model.
+ */
+export async function extractTextFromImage(screenshotBase64: string): Promise<string> {
+  const prompt = `
+    Analyze the attached screenshot, which is from a computer screen showing a software application or an error message.
+    Extract all relevant text visible in the image.
+    Prioritize error messages, codes, and any text that describes a problem or a system state.
+    Present the extracted text clearly and concisely. If there are distinct blocks of text (e.g., a title, a message body, button text), format them logically.
+    Do not add any commentary, analysis, or greetings. Just return the extracted text.
+  `;
+
+  try {
+    if (!screenshotBase64.startsWith('data:image/')) {
+        return ""; // Not a valid image data URL
+    }
+    
+    const [meta, data] = screenshotBase64.split(',');
+    const mimeType = meta.match(/:(.*?);/)?.[1] || 'image/png';
+    
+    const parts = [
+        { text: prompt },
+        {
+            inlineData: {
+                mimeType,
+                data
+            }
+        }
+    ];
+
+    const response = await geminiApiCallWithRetry<GenerateContentResponse>(() => 
+        ai.models.generateContent({
+            model: 'gemini-2.5-flash', // Multimodal model
+            contents: { parts },
+        })
+    );
+    
+    return response.text.trim();
+
+  } catch (error) {
+    console.error("Error extracting text from image with Gemini API:", error);
+    return ""; // Return empty string on error to not disrupt the user flow.
+  }
+}
+
+/**
  * Uses a heuristic to suggest a mapping from user CSV headers to required fields.
  */
 export async function getMappingSuggestion(userHeaders: string[]): Promise<Record<string, string | null>> {

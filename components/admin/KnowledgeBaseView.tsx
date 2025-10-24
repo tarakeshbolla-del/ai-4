@@ -430,6 +430,7 @@ const KnowledgeBaseView: React.FC = () => {
                         <h3 className="text-xl font-semibold mb-4 border-b pb-2 border-light-border dark:border-dark-border">Exploratory Data Analysis Report</h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-700 dark:text-gray-300">
                             <p><strong>File Name:</strong> <span className="font-mono">{edaReport.fileName}</span></p>
+                            {/* FIX: Cast edaReport.fileSize to Number before performing arithmetic operation */}
                             <p><strong>File Size:</strong> <span className="font-mono">{(Number(edaReport.fileSize) / 1024).toFixed(2)} KB</span></p>
                             <p><strong>Valid Rows:</strong> <span className="font-mono">{edaReport.rowCount.toLocaleString()}</span></p>
                         </div>
@@ -442,7 +443,8 @@ const KnowledgeBaseView: React.FC = () => {
                         </div>
                         <div>
                             <h4 className="font-semibold mb-2 text-center">Missing Values per Column</h4>
-                            <MissingValuesChart columns={edaReport.columns} rowCount={edaReport.rowCount} />
+                            {/* FIX: Cast edaReport.rowCount to Number before passing to child component */}
+                            <MissingValuesChart columns={edaReport.columns} rowCount={Number(edaReport.rowCount)} />
                         </div>
                     </div>
                 </div>
